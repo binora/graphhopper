@@ -22,6 +22,7 @@ public class Lanes {
     public static final String KEY = "lanes";
 
     public static IntEncodedValue create() {
-        return new IntEncodedValueImpl(KEY, 3, false);
+        // store per-direction lane counts
+        return new IntEncodedValueImpl(KEY, 3, true);
     }
 }

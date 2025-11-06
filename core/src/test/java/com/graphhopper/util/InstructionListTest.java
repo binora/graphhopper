@@ -550,11 +550,11 @@ public class InstructionListTest {
         PointList list = new PointList();
         list.add(43.62549, -79.714292);
         g.edge(1, 2).setKeyValues(Map.of(STREET_NAME, new KValue("main"))).setWayGeometry(list).
-                setDistance(110).set(roadsSpeedEnc, 50, 0).set(lanesEnc, 2);
+                setDistance(110).set(roadsSpeedEnc, 50, 0).set(lanesEnc, 2, 2);
         g.edge(2, 3).setKeyValues(Map.of(STREET_NAME, new KValue("main"))).
-                setDistance(110).set(roadsSpeedEnc, 50, 0).set(lanesEnc, 3);
+                setDistance(110).set(roadsSpeedEnc, 50, 0).set(lanesEnc, 3, 3);
         g.edge(2, 4).setKeyValues(Map.of(STREET_NAME, new KValue("main"))).
-                setDistance(80).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 5);
+                setDistance(80).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 5, 5);
 
         Weighting weighting = new SpeedWeighting(roadsSpeedEnc);
         Path p = new Dijkstra(g, weighting, tMode).calcPath(1, 4);
@@ -564,7 +564,7 @@ public class InstructionListTest {
 
         // Other roads should not influence instructions. Example: https://www.openstreetmap.org/node/392106581
         na.setNode(5, 43.625666, -79.714048);
-        g.edge(2, 5).setDistance(80).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 5);
+        g.edge(2, 5).setDistance(80).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 5, 5);
 
         p = new Dijkstra(g, weighting, tMode).calcPath(1, 4);
         wayList = InstructionsFromEdges.calcInstructions(p, g, weighting, tmpEM, usTR);
@@ -592,11 +592,11 @@ public class InstructionListTest {
         na.setNode(4, 51.425273, 14.223427);
 
         g.edge(1, 2).setKeyValues(Map.of(STREET_NAME, new KValue("dresdener"))).
-                setDistance(110).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 2);
+                setDistance(110).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 2, 2);
         g.edge(2, 3).setKeyValues(Map.of(STREET_NAME, new KValue("dresdener"))).
-                setDistance(110).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 3);
+                setDistance(110).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 3, 3);
         g.edge(2, 4).setKeyValues(Map.of(STREET_NAME, new KValue("main"))).
-                setDistance(80).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 5);
+                setDistance(80).set(roadsSpeedEnc, 50, 50).set(lanesEnc, 5, 5);
 
         Weighting weighting = new SpeedWeighting(roadsSpeedEnc);
         Path p = new Dijkstra(g, weighting, tMode).calcPath(3, 1);

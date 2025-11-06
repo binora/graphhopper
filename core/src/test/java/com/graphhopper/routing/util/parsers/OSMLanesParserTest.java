@@ -38,22 +38,93 @@ class OSMLanesParserTest {
     }
 
     @Test
-    void basic() {
+    void basicTwoWayEvenSplit() {
         ReaderWay readerWay = new ReaderWay(1);
         EdgeIntAccess edgeIntAccess = new ArrayEdgeIntAccess(1);
         int edgeId = 0;
         readerWay.setTag("lanes", "4");
         parser.handleWayTags(edgeId, edgeIntAccess, readerWay, relFlags);
-        Assertions.assertEquals(4, lanesEnc.getInt(false, edgeId, edgeIntAccess));
+        Assertions.assertEquals(2, lanesEnc.getInt(false, edgeId, edgeIntAccess));
+        Assertions.assertEquals(2, lanesEnc.getInt(true, edgeId, edgeIntAccess));
     }
 
     @Test
-    void notTagged() {
+    void notTaggedDefaultsToOneEach() {
         ReaderWay readerWay = new ReaderWay(1);
         EdgeIntAccess edgeIntAccess = new ArrayEdgeIntAccess(1);
         int edgeId = 0;
         parser.handleWayTags(edgeId, edgeIntAccess, readerWay, relFlags);
         Assertions.assertEquals(1, lanesEnc.getInt(false, edgeId, edgeIntAccess));
+        Assertions.assertEquals(1, lanesEnc.getInt(true, edgeId, edgeIntAccess));
+    }
+
+    @Test
+    void directionalTagsPreferred() {
+        ReaderWay way = new ReaderWay(1);
+        EdgeIntAccess access = new ArrayEdgeIntAccess(1);
+        int edgeId = 0;
+        way.setTag("lanes:forward", "2");
+        way.setTag("lanes:backward", "1");
+        parser.handleWayTags(edgeId, access, way, relFlags);
+        Assertions.assertEquals(2, lanesEnc.getInt(false, edgeId, access));
+        Assertions.assertEquals(1, lanesEnc.getInt(true, edgeId, access));
+    }
+
+    @Test
+    void onewayForward() {
+        ReaderWay way = new ReaderWay(1);
+        EdgeIntAccess access = new ArrayEdgeIntAccess(1);
+        int edgeId = 0;
+        way.setTag("oneway", "yes");
+        way.setTag("lanes", "3");
+        parser.handleWayTags(edgeId, access, way, relFlags);
+        Assertions.assertEquals(3, lanesEnc.getInt(false, edgeId, access));
+        Assertions.assertEquals(0, lanesEnc.getInt(true, edgeId, access));
+    }
+
+    @Test
+    void onewayBackward() {
+        ReaderWay way = new ReaderWay(1);
+        EdgeIntAccess access = new ArrayEdgeIntAccess(1);
+        int edgeId = 0;
+        way.setTag("oneway", "-1");
+        way.setTag("lanes", "2");
+        parser.handleWayTags(edgeId, access, way, relFlags);
+        Assertions.assertEquals(0, lanesEnc.getInt(false, edgeId, access));
+        Assertions.assertEquals(2, lanesEnc.getInt(true, edgeId, access));
+    }
+
+    @Test
+    void centerTurnLaneSubtracted() {
+        ReaderWay way = new ReaderWay(1);
+        EdgeIntAccess access = new ArrayEdgeIntAccess(1);
+        int edgeId = 0;
+        way.setTag("lanes", "3");
+        way.setTag("lanes:both_ways", "1");
+        parser.handleWayTags(edgeId, access, way, relFlags);
+        Assertions.assertEquals(1, lanesEnc.getInt(false, edgeId, access));
+        Assertions.assertEquals(1, lanesEnc.getInt(true, edgeId, access));
+    }
+
+    @Test
+    void twoWaySingleLaneApproximated() {
+        ReaderWay way = new ReaderWay(1);
+        EdgeIntAccess access = new ArrayEdgeIntAccess(1);
+        int edgeId = 0;
+        way.setTag("lanes", "1");
+        parser.handleWayTags(edgeId, access, way, relFlags);
+        Assertions.assertEquals(1, lanesEnc.getInt(false, edgeId, access));
+        Assertions.assertEquals(1, lanesEnc.getInt(true, edgeId, access));
+    }
+
+    @Test
+    void clampLargeValues() {
+        ReaderWay way = new ReaderWay(1);
+        EdgeIntAccess access = new ArrayEdgeIntAccess(1);
+        int edgeId = 0;
+        way.setTag("lanes:forward", "10");
+        parser.handleWayTags(edgeId, access, way, relFlags);
+        Assertions.assertEquals(6, lanesEnc.getInt(false, edgeId, access));
     }
 
 }
