@@ -201,6 +201,13 @@ public final class CCHStorage {
             return this;
         }
 
+        public Builder nodeOrder(CCHNodeOrder nodeOrder) {
+            Objects.requireNonNull(nodeOrder, "nodeOrder");
+            this.order = nodeOrder.getOrderArray();
+            this.rank = nodeOrder.getRankArray();
+            return this;
+        }
+
         public Builder upwardGraph(int[] firstOut, int[] head) {
             this.upFirstOut = copy(firstOut);
             this.upHead = copy(head);

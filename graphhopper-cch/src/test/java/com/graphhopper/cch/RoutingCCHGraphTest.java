@@ -70,6 +70,18 @@ class RoutingCCHGraphTest {
         assertTrue(error.getMessage().contains("inverse"));
     }
 
+    @Test
+    void acceptsNodeOrderValueObject() {
+        CCHStorage storage = CCHStorage.builder(3)
+                .nodeOrder(CCHNodeOrder.fromOrder(new int[]{2, 0, 1}))
+                .build();
+
+        assertEquals(2, storage.getOrder(0));
+        assertEquals(0, storage.getRank(2));
+        assertEquals(1, storage.getRank(0));
+        assertEquals(2, storage.getRank(1));
+    }
+
     static class NoOpWeighting implements Weighting {
         @Override
         public double calcMinWeightPerDistance() {
