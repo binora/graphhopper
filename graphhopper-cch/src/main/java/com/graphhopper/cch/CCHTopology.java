@@ -61,6 +61,25 @@ public final class CCHTopology {
         return getUpArcs() + downArc;
     }
 
+    public boolean isUpArc(int cchArc) {
+        checkCCHArc(cchArc);
+        return cchArc < getUpArcs();
+    }
+
+    public int getTail(int cchArc) {
+        checkCCHArc(cchArc);
+        if (isUpArc(cchArc))
+            return getUpTail(cchArc);
+        return getDownTail(cchArc - getUpArcs());
+    }
+
+    public int getHead(int cchArc) {
+        checkCCHArc(cchArc);
+        if (isUpArc(cchArc))
+            return getUpHead(cchArc);
+        return getDownHead(cchArc - getUpArcs());
+    }
+
     public int getUpArcStart(int node) {
         return upFirstOut[node];
     }
