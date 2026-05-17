@@ -13,6 +13,10 @@ public interface RoutingCCHGraph {
 
     CCHStorage getCCHStorage();
 
+    CCHTopology getTopology();
+
+    CCHMetric getMetric();
+
     Weighting getWeighting();
 
     default int getNodes() {

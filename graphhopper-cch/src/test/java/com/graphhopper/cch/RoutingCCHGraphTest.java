@@ -9,6 +9,9 @@ import com.graphhopper.storage.RoutingCHGraph;
 import com.graphhopper.util.EdgeIteratorState;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class RoutingCCHGraphTest {
@@ -17,16 +20,21 @@ class RoutingCCHGraphTest {
         BaseGraph baseGraph = new BaseGraph.Builder(1).create();
         baseGraph.getNodeAccess().setNode(0, 0, 0);
         baseGraph.getNodeAccess().setNode(1, 1, 1);
+        CCHTopology topology = topology(2, support(0, 1));
+        CCHMetric metric = new CCHMetric(topology.getArcs());
         CCHStorage storage = CCHStorage.builder(2)
+                .nodeOrder(CCHNodeOrder.identity(2))
                 .upwardGraph(new int[]{0, 1, 1}, new int[]{1})
                 .downwardGraph(new int[]{0, 0, 1}, new int[]{0})
                 .baseEdgeMapping(new int[]{7, CCHStorage.NO_ARC}, new boolean[]{false, true})
                 .build();
 
-        RoutingCCHGraph routingGraph = new DefaultRoutingCCHGraph(baseGraph, storage, new NoOpWeighting());
+        RoutingCCHGraph routingGraph = new DefaultRoutingCCHGraph(baseGraph, storage, topology, metric, new NoOpWeighting());
 
         assertSame(baseGraph, routingGraph.getBaseGraph());
         assertSame(storage, routingGraph.getCCHStorage());
+        assertSame(topology, routingGraph.getTopology());
+        assertSame(metric, routingGraph.getMetric());
         assertEquals(2, routingGraph.getNodes());
         assertEquals(2, routingGraph.getArcs());
         assertEquals(1, storage.getUpArcs());
@@ -42,8 +50,8 @@ class RoutingCCHGraphTest {
     @Test
     void isNotAProductionGraphOrClassicCHGraph() {
         BaseGraph baseGraph = new BaseGraph.Builder(1).create();
-        CCHStorage storage = CCHStorage.builder(0).build();
-        RoutingCCHGraph routingGraph = new DefaultRoutingCCHGraph(baseGraph, storage, new NoOpWeighting());
+        CCHTopology topology = topology(0);
+        RoutingCCHGraph routingGraph = new DefaultRoutingCCHGraph(baseGraph, topology, new CCHMetric(0), new NoOpWeighting());
 
         assertFalse(routingGraph instanceof Graph);
         assertFalse(routingGraph instanceof RoutingCHGraph);
@@ -52,10 +60,10 @@ class RoutingCCHGraphTest {
     @Test
     void rejectsTurnCostWeightingsForV1() {
         BaseGraph baseGraph = new BaseGraph.Builder(1).create();
-        CCHStorage storage = CCHStorage.builder(0).build();
+        CCHTopology topology = topology(0);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> new DefaultRoutingCCHGraph(baseGraph, storage, new TurnCostWeighting()));
+                () -> new DefaultRoutingCCHGraph(baseGraph, topology, new CCHMetric(0), new TurnCostWeighting()));
 
         assertTrue(error.getMessage().contains("without turn costs"));
     }
@@ -124,5 +132,15 @@ class RoutingCCHGraphTest {
         public boolean hasTurnCosts() {
             return true;
         }
+    }
+
+    private static CCHTopology topology(int nodes, CCHInputEdge... supportEdges) {
+        return new CCHTopologyBuilder().build(
+                new CCHInputGraph(nodes, Collections.emptyList(), Arrays.asList(supportEdges)),
+                CCHNodeOrder.identity(nodes));
+    }
+
+    private static CCHInputEdge support(int a, int b) {
+        return new CCHInputEdge(a, b);
     }
 }
