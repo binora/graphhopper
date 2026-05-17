@@ -59,6 +59,7 @@
 
     <modules>
         <module>core</module>
+        <module>graphhopper-cch</module>
         <module>reader-gtfs</module>
         <module>tools</module>
         <module>map-matching</module>
