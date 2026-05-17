@@ -47,9 +47,9 @@ public final class CCHPathCalculator implements PathCalculator {
     @Override
     public List<Path> calcPaths(int from, int to, EdgeRestrictions edgeRestrictions) {
         Objects.requireNonNull(edgeRestrictions, "edgeRestrictions");
-        checkRestrictions(edgeRestrictions);
         checkBaseGraphEndpoint("from", from);
         checkBaseGraphEndpoint("to", to);
+        checkRestrictions(edgeRestrictions);
 
         StopWatch sw = new StopWatch().start();
         debug = initDebug;
@@ -81,6 +81,6 @@ public final class CCHPathCalculator implements PathCalculator {
         if (node < 0 || node >= routingCCHGraph.getNodes())
             throw new IllegalArgumentException("graphhopper-cch currently supports only base graph nodes; " + name
                     + "=" + node + " is outside [0," + routingCCHGraph.getNodes()
-                    + "). QueryGraph virtual nodes are not supported yet");
+                    + "). virtual QueryGraph nodes are not supported yet");
     }
 }

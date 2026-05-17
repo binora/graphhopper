@@ -132,7 +132,7 @@ class CCHPathCalculatorTest {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> fixture.calculator.calcPaths(2, 0, new EdgeRestrictions()));
 
-        assertTrue(error.getMessage().contains("virtual nodes"));
+        assertTrue(error.getMessage().contains("virtual QueryGraph nodes"));
     }
 
     @Test
