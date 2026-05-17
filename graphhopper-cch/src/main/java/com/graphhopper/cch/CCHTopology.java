@@ -3,6 +3,8 @@
 package com.graphhopper.cch;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 public final class CCHTopology {
@@ -17,6 +19,7 @@ public final class CCHTopology {
     private final boolean[] fillArc;
     private final int[] skippedArc1;
     private final int[] skippedArc2;
+    private final Map<Long, Integer> directedArcToCCHArc;
 
     CCHTopology(CCHNodeOrder nodeOrder, int[] upFirstOut, int[] upTail, int[] upHead,
                 int[] downFirstOut, int[] downTail, int[] downHead, int[] inputArcToCCHArc,
@@ -33,6 +36,7 @@ public final class CCHTopology {
         this.skippedArc1 = copy(skippedArc1);
         this.skippedArc2 = copy(skippedArc2);
         checkLengths();
+        this.directedArcToCCHArc = buildArcIndex();
     }
 
     public int getNodes() {
@@ -122,6 +126,12 @@ public final class CCHTopology {
         return inputArcToCCHArc[inputArc];
     }
 
+    public int findArc(int tail, int head) {
+        checkNode("tail", tail);
+        checkNode("head", head);
+        return directedArcToCCHArc.getOrDefault(directedEdgeKey(tail, head), CCHStorage.NO_ARC);
+    }
+
     public boolean isFillArc(int cchArc) {
         checkCCHArc(cchArc);
         return fillArc[cchArc];
@@ -165,6 +175,18 @@ public final class CCHTopology {
         return inputArcToCCHArc.clone();
     }
 
+    public boolean[] getFillArcArray() {
+        return fillArc.clone();
+    }
+
+    public int[] getSkippedArc1Array() {
+        return skippedArc1.clone();
+    }
+
+    public int[] getSkippedArc2Array() {
+        return skippedArc2.clone();
+    }
+
     public CCHStorage toStorage() {
         int[] baseEdge = new int[getArcs()];
         Arrays.fill(baseEdge, CCHStorage.NO_ARC);
@@ -204,6 +226,31 @@ public final class CCHTopology {
     private void checkCCHArc(int cchArc) {
         if (cchArc < 0 || cchArc >= getArcs())
             throw new IllegalArgumentException("cchArc outside [0," + getArcs() + "): " + cchArc);
+    }
+
+    private void checkNode(String name, int node) {
+        if (node < 0 || node >= getNodes())
+            throw new IllegalArgumentException(name + " outside [0," + getNodes() + "): " + node);
+    }
+
+    private Map<Long, Integer> buildArcIndex() {
+        Map<Long, Integer> index = new HashMap<>(Math.max(1, getArcs() * 2));
+        for (int upArc = 0; upArc < getUpArcs(); upArc++) {
+            long key = directedEdgeKey(getUpTail(upArc), getUpHead(upArc));
+            if (index.put(key, upArc) != null)
+                throw new IllegalArgumentException("duplicate CCH arc " + getUpTail(upArc) + "->" + getUpHead(upArc));
+        }
+        for (int downArc = 0; downArc < getDownArcs(); downArc++) {
+            int cchArc = getDownArcId(downArc);
+            long key = directedEdgeKey(getDownTail(downArc), getDownHead(downArc));
+            if (index.put(key, cchArc) != null)
+                throw new IllegalArgumentException("duplicate CCH arc " + getDownTail(downArc) + "->" + getDownHead(downArc));
+        }
+        return index;
+    }
+
+    private static long directedEdgeKey(int tail, int head) {
+        return ((long) tail << 32) | (head & 0xffffffffL);
     }
 
     private static int[] copy(int[] values) {

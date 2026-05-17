@@ -4,7 +4,6 @@ package com.graphhopper.cch;
 
 import com.graphhopper.GHRequest;
 import com.graphhopper.GHResponse;
-import com.graphhopper.ResponsePath;
 import com.graphhopper.config.Profile;
 import com.graphhopper.routing.Router;
 import com.graphhopper.routing.RouterConfig;
@@ -28,18 +27,13 @@ import com.graphhopper.storage.RoutingCHGraph;
 import com.graphhopper.storage.RoutingCHGraphImpl;
 import com.graphhopper.storage.index.LocationIndex;
 import com.graphhopper.util.EdgeIteratorState;
-import com.graphhopper.util.Instruction;
-import com.graphhopper.util.InstructionList;
 import com.graphhopper.util.Parameters;
 import com.graphhopper.util.PointList;
 import com.graphhopper.util.TranslationMap;
 import com.graphhopper.util.details.PathDetailsBuilderFactory;
-import com.graphhopper.util.details.PathDetail;
 import com.graphhopper.util.shapes.GHPoint;
 import org.junit.jupiter.api.Test;
 
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -138,24 +132,24 @@ class CCHGraphHopperRouteParityTest {
 
     private static void assertRouteParity(String caseName, GraphFixture fixture, QuerySpec query) {
         TestCCHGraphHopper hopper = prepareHopper(fixture);
-        Map<RouteMode, StableRoute> routes = new LinkedHashMap<>();
+        Map<RouteMode, CCHStableRoute> routes = new LinkedHashMap<>();
         for (RouteMode mode : RouteMode.values()) {
             GHResponse response = hopper.route(request(fixture, query, mode));
-            routes.put(mode, StableRoute.from(fixture, query, response));
+            routes.put(mode, CCHStableRoute.from(fixture.graph, query.sourceNode, query.instructions, response));
         }
 
-        StableRoute flexible = routes.get(RouteMode.FLEXIBLE);
+        CCHStableRoute flexible = routes.get(RouteMode.FLEXIBLE);
         assertSameBytes(caseName, query, RouteMode.FLEXIBLE, flexible, RouteMode.CH, routes.get(RouteMode.CH));
         assertSameBytes(caseName, query, RouteMode.FLEXIBLE, flexible, RouteMode.CCH, routes.get(RouteMode.CCH));
     }
 
     private static void assertSameBytes(String caseName, QuerySpec query,
-                                        RouteMode expectedMode, StableRoute expected,
-                                        RouteMode actualMode, StableRoute actual) {
+                                        RouteMode expectedMode, CCHStableRoute expected,
+                                        RouteMode actualMode, CCHStableRoute actual) {
         if (Arrays.equals(expected.bytes, actual.bytes))
             return;
 
-        String differingField = firstDifferingField(expected, actual);
+        String differingField = CCHStableRoute.firstDifferingField(expected, actual);
         fail("Route parity failed"
                 + "\ncase=" + caseName
                 + "\nprofile=" + PROFILE
@@ -165,20 +159,6 @@ class CCHGraphHopperRouteParityTest {
                 + "\nfirstDifferingField=" + differingField
                 + "\nexpected=\n" + expected.serialized
                 + "\nactual=\n" + actual.serialized);
-    }
-
-    private static String firstDifferingField(StableRoute expected, StableRoute actual) {
-        for (String key : expected.fields.keySet()) {
-            String expectedValue = expected.fields.get(key);
-            String actualValue = actual.fields.get(key);
-            if (!expectedValue.equals(actualValue))
-                return key + " expected=" + expectedValue + " actual=" + actualValue;
-        }
-        for (String key : actual.fields.keySet()) {
-            if (!expected.fields.containsKey(key))
-                return key + " only present in actual";
-        }
-        return "<serialized-bytes>";
     }
 
     private static TestCCHGraphHopper prepareHopper(GraphFixture fixture) {
@@ -257,110 +237,6 @@ class CCHGraphHopperRouteParityTest {
         };
 
         abstract void apply(GHRequest request);
-    }
-
-    private static final class StableRoute {
-        private final LinkedHashMap<String, String> fields;
-        private final String serialized;
-        private final byte[] bytes;
-
-        private StableRoute(LinkedHashMap<String, String> fields) {
-            this.fields = fields;
-            StringBuilder builder = new StringBuilder();
-            for (Map.Entry<String, String> entry : fields.entrySet()) {
-                builder.append(entry.getKey()).append('=').append(entry.getValue()).append('\n');
-            }
-            serialized = builder.toString();
-            bytes = serialized.getBytes(StandardCharsets.UTF_8);
-        }
-
-        private static StableRoute from(GraphFixture fixture, QuerySpec query, GHResponse response) {
-            LinkedHashMap<String, String> fields = new LinkedHashMap<>();
-            fields.put("hasErrors", Boolean.toString(response.hasErrors()));
-            fields.put("errors", errors(response));
-            fields.put("responsePaths", Integer.toString(response.getAll().size()));
-            if (response.hasErrors())
-                return new StableRoute(fields);
-
-            ResponsePath path = response.getBest();
-            fields.put("weight", Double.toString(path.getRouteWeight()));
-            fields.put("time", Long.toString(path.getTime()));
-            fields.put("distance", Double.toString(path.getDistance()));
-            fields.put("points", points(path.getPoints()));
-            fields.put("waypoints", points(path.getWaypoints()));
-            fields.put("waypointIndices", path.getWaypointIndices().toString());
-            fields.put("edgeIds", details(path, EDGE_ID).toString());
-            List<Integer> edgeKeys = details(path, EDGE_KEY);
-            fields.put("edgeKeys", edgeKeys.toString());
-            fields.put("nodes", nodes(fixture, query, edgeKeys).toString());
-            fields.put("instructions", query.instructions ? instructions(path.getInstructions()) : "<disabled>");
-            return new StableRoute(fields);
-        }
-
-        private static String errors(GHResponse response) {
-            if (!response.hasErrors())
-                return "[]";
-            List<String> errors = new ArrayList<>();
-            for (Throwable error : response.getErrors()) {
-                errors.add(error.getClass().getName() + ":" + error.getMessage());
-            }
-            return errors.toString();
-        }
-
-        private static List<Integer> details(ResponsePath path, String key) {
-            List<PathDetail> details = path.getPathDetails().get(key);
-            if (details == null)
-                return Collections.emptyList();
-            List<Integer> values = new ArrayList<>();
-            for (PathDetail detail : details) {
-                for (int i = detail.getFirst(); i < detail.getLast(); i++) {
-                    values.add((Integer) detail.getValue());
-                }
-            }
-            return values;
-        }
-
-        private static List<Integer> nodes(GraphFixture fixture, QuerySpec query, List<Integer> edgeKeys) {
-            List<Integer> nodes = new ArrayList<>();
-            if (edgeKeys.isEmpty()) {
-                nodes.add(query.sourceNode);
-                return nodes;
-            }
-            for (int i = 0; i < edgeKeys.size(); i++) {
-                EdgeIteratorState edge = fixture.graph.getEdgeIteratorStateForKey(edgeKeys.get(i));
-                if (i == 0)
-                    nodes.add(edge.getBaseNode());
-                nodes.add(edge.getAdjNode());
-            }
-            return nodes;
-        }
-
-        private static String points(PointList points) {
-            StringBuilder builder = new StringBuilder("[");
-            for (int i = 0; i < points.size(); i++) {
-                if (i > 0)
-                    builder.append(',');
-                builder.append(points.getLat(i)).append(':').append(points.getLon(i));
-            }
-            return builder.append(']').toString();
-        }
-
-        private static String instructions(InstructionList instructions) {
-            StringBuilder builder = new StringBuilder("[");
-            for (int i = 0; i < instructions.size(); i++) {
-                if (i > 0)
-                    builder.append(',');
-                Instruction instruction = instructions.get(i);
-                builder.append('{')
-                        .append("sign=").append(instruction.getSign())
-                        .append(",name=").append(instruction.getName())
-                        .append(",distance=").append(instruction.getDistance())
-                        .append(",time=").append(instruction.getTime())
-                        .append(",points=").append(points(instruction.getPoints()))
-                        .append('}');
-            }
-            return builder.append(']').toString();
-        }
     }
 
     private static final class GraphFixture {

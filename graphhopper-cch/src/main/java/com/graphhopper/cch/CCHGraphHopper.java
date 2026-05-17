@@ -13,6 +13,7 @@ import com.graphhopper.routing.lm.LandmarkStorage;
 import com.graphhopper.routing.weighting.Weighting;
 import com.graphhopper.storage.BaseGraph;
 import com.graphhopper.storage.RoutingCHGraph;
+import com.graphhopper.storage.StorableProperties;
 import com.graphhopper.storage.index.LocationIndex;
 import com.graphhopper.util.PMap;
 import com.graphhopper.util.TranslationMap;
@@ -23,6 +24,7 @@ import java.util.*;
 public class CCHGraphHopper extends GraphHopper {
     private final List<CCHProfile> cchProfiles = new ArrayList<>();
     private Map<String, RoutingCCHGraph> cchGraphs = Collections.emptyMap();
+    private CCHDataAccessStore cchStore;
 
     @Override
     public CCHGraphHopper init(GraphHopperConfig ghConfig) {
@@ -91,17 +93,80 @@ public class CCHGraphHopper extends GraphHopper {
         if (!getBaseGraph().isFrozen())
             getBaseGraph().freeze();
 
+        if (getProperties() != null) {
+            loadOrPreparePersistedCCH();
+            return;
+        }
+
+        CCHTopology topology = prepareTopology();
         Map<String, RoutingCCHGraph> prepared = new LinkedHashMap<>();
         for (CCHProfile cchProfile : cchProfiles) {
             Profile profile = getProfile(cchProfile.getProfile());
             Weighting weighting = createWeighting(profile, new PMap());
-            CCHInputGraph inputGraph = BaseGraphCCHInputBuilder.fromGraph(getBaseGraph(), weighting);
-            CCHNodeOrder order = new DeterministicCCHNodeOrderBuilder().build(inputGraph);
-            CCHTopology topology = new CCHTopologyBuilder().build(inputGraph, order);
-            CCHMetric metric = new CCHMetricCustomizer().customize(topology, inputGraph);
+            CCHMetric metric = new CCHMetricCustomizer().customize(topology,
+                    new BaseGraphCCHMetricSource(getBaseGraph(), weighting, topology));
             prepared.put(cchProfile.getProfile(), new DefaultRoutingCCHGraph(getBaseGraph(), topology, metric, weighting));
         }
         cchGraphs = Collections.unmodifiableMap(prepared);
+    }
+
+    private void loadOrPreparePersistedCCH() {
+        cchStore = new CCHDataAccessStore(getBaseGraph().getDirectory(), getBaseGraph().getSegmentSize());
+        for (CCHProfile cchProfile : cchProfiles) {
+            String profileName = cchProfile.getProfile();
+            int profileHash = getProfileHash(getProfile(profileName));
+            String storedVersion = getCCHProfileVersion(profileName);
+            if (!storedVersion.isEmpty() && !storedVersion.equals(String.valueOf(profileHash)))
+                throw new IllegalArgumentException("CCH preparation of " + profileName + " already exists in storage and doesn't match configuration");
+        }
+
+        CCHTopology topology = cchStore.loadTopology(getBaseGraph().getNodes());
+        if (topology == null) {
+            ensureWriteAccessForMissingCCH("topology");
+            topology = prepareTopology();
+            cchStore.saveTopology(topology);
+        }
+
+        Map<String, RoutingCCHGraph> prepared = new LinkedHashMap<>();
+        for (CCHProfile cchProfile : cchProfiles) {
+            String profileName = cchProfile.getProfile();
+            Profile profile = getProfile(profileName);
+            int profileHash = getProfileHash(profile);
+            Weighting weighting = createWeighting(profile, new PMap());
+            CCHMetric metric = cchStore.loadMetric(profileName, profileHash, topology);
+            if (metric == null) {
+                ensureWriteAccessForMissingCCH("metric for profile '" + profileName + "'");
+                metric = new CCHMetricCustomizer().customize(topology,
+                        new BaseGraphCCHMetricSource(getBaseGraph(), weighting, topology));
+                cchStore.saveMetric(profileName, profileHash, topology, metric);
+                setCCHProfileVersion(profileName, profileHash);
+            }
+            prepared.put(profileName, new DefaultRoutingCCHGraph(getBaseGraph(), topology, metric, weighting));
+        }
+        cchGraphs = Collections.unmodifiableMap(prepared);
+    }
+
+    private CCHTopology prepareTopology() {
+        CCHInputGraph supportGraph = BaseGraphCCHSupportBuilder.fromGraph(getBaseGraph());
+        CCHNodeOrder order = new DeterministicCCHNodeOrderBuilder().build(supportGraph);
+        return new CCHTopologyBuilder().build(supportGraph, order);
+    }
+
+    private void ensureWriteAccessForMissingCCH(String missingPart) {
+        if (!isAllowWrites())
+            throw new IllegalStateException("CCH " + missingPart + " is missing and writes are not allowed");
+        ensureWriteAccess();
+    }
+
+    private String getCCHProfileVersion(String profile) {
+        StorableProperties properties = getProperties();
+        return properties == null ? "" : properties.get("graph.profiles.cch." + profile + ".version");
+    }
+
+    private void setCCHProfileVersion(String profile, int version) {
+        StorableProperties properties = getProperties();
+        if (properties != null)
+            properties.put("graph.profiles.cch." + profile + ".version", version);
     }
 
     @Override
@@ -111,6 +176,13 @@ public class CCHGraphHopper extends GraphHopper {
                                     Map<String, RoutingCHGraph> chGraphs, Map<String, LandmarkStorage> landmarks) {
         return new CCHRouter(baseGraph, encodingManager, locationIndex, profilesByName, pathBuilderFactory,
                 trMap, routerConfig, weightingFactory, chGraphs, landmarks, cchGraphs);
+    }
+
+    @Override
+    public void close() {
+        super.close();
+        if (cchStore != null)
+            cchStore.close();
     }
 
     private void checkCCHProfiles() {
