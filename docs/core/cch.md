@@ -65,7 +65,8 @@ GraphHopper's `Graph` interface with a CCH overlay.
 
 The intended extension boundary is `CCHMetricSource`. Metric customization consumes deterministic metric candidates
 rather than raw `BaseGraph` edges, which keeps the node-based v1 implementation separate from future edge-state and
-turn-cost sources.
+turn-cost sources. The edge-state model for future turn-cost support is described in
+[Edge-State CCH Design For Turn Costs](./cch-edge-state-design.md).
 
 The topology, customization, triangle enumeration, query, unpacking, boundary-overlay, and persistence classes are
 public for module composition and tests, but they are not yet a compatibility promise for external applications. Treat
