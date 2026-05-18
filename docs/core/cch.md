@@ -115,6 +115,11 @@ The imported order file is a whitespace-separated list of original node ids in i
 provider expects zero-based GraphHopper node ids; use `FileCCHNodeOrderProvider.Numbering.ONE_BASED` for one-based
 orders. The module validates the imported order as a full permutation before preparing CCH.
 
+For a portable in-process baseline, `CoordinateNestedDissectionCCHNodeOrderProvider` computes a deterministic recursive
+spatial separator order from GraphHopper node coordinates. It is useful for tests, small maps, and comparing against the
+degree-order fallback, but external FlowCutter/KaHIP/METIS orders should be preferred for serious production
+performance experiments.
+
 The extension boundary is `CCHMetricSource`. Metric customization consumes deterministic metric candidates rather than
 raw `BaseGraph` edges, which keeps the node-based adapter separate from edge-state and turn-cost sources. The edge-state
 model is described in [Edge-State CCH Design For Turn Costs](./cch-edge-state-design.md).
