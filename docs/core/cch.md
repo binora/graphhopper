@@ -57,6 +57,20 @@ customized metric per CCH profile. It supports tower-node requests and normal co
 Supported CCH routes are expected to match flexible and CH routing for stable fields such as found/errors, weight, time,
 distance, edge ids, edge keys, points, waypoints, and instructions when enabled.
 
+## Module API Boundaries
+
+The stable application-facing entry points are `CCHGraphHopper`, `CCHGraphHopperConfig`, `CCHProfile`, and
+`RoutingCCHGraph`. Applications should enable CCH through these types instead of replacing `BaseGraph` or implementing
+GraphHopper's `Graph` interface with a CCH overlay.
+
+The intended extension boundary is `CCHMetricSource`. Metric customization consumes deterministic metric candidates
+rather than raw `BaseGraph` edges, which keeps the node-based v1 implementation separate from future edge-state and
+turn-cost sources.
+
+The topology, customization, triangle enumeration, query, unpacking, boundary-overlay, and persistence classes are
+public for module composition and tests, but they are not yet a compatibility promise for external applications. Treat
+them as construction and diagnostic APIs until the edge-based v2 design is complete.
+
 ## Current Limitations
 
 The following features are intentionally out of scope for v1:

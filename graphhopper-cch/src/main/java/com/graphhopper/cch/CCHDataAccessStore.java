@@ -10,6 +10,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Persistence adapter for prepared CCH topology and metrics.
+ * <p>
+ * v1 stores one graph-level node-based topology and one metric per CCH profile. Future edge-based storage must use
+ * separate names, headers, and fingerprints rather than changing the meaning of existing node-based data files.
+ */
 public final class CCHDataAccessStore {
     private static final String TOPOLOGY_NAME = "cch_topology";
     private static final String METRIC_PREFIX = "cch_metric_";

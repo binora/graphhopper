@@ -5,6 +5,12 @@ package com.graphhopper.cch;
 import java.util.Arrays;
 import java.util.Objects;
 
+/**
+ * Customized per-arc CCH metric and unpacking provenance.
+ * <p>
+ * This type stores the result of metric customization. The direct/shortcut provenance API is intentionally small so
+ * future edge-state and turn-cost metrics can add richer provenance behind the same customization boundary.
+ */
 public final class CCHMetric {
     private static final byte NONE = 0;
     private static final byte DIRECT = 1;
