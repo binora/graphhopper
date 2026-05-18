@@ -58,7 +58,12 @@ Edge-based CCH uses a separate topology from node-based CCH:
 * directed input arcs are turn transitions;
 * undirected support edges connect the two endpoint states of every possible transition;
 * fill edges and triangle enumeration follow the same CCH topology rules as node-based CCH;
-* ordering is deterministic over edge-state ids for v2, with nested-dissection ordering left as a later optimization.
+* ordering can be lifted from a base-node order by ranking each edge state by the rank of its head/via node, then by
+  edge key and state id.
+
+This lift makes edge-state ordering deterministic and aligned with node separators, but it is still a simple baseline:
+it can improve elimination-tree shape without guaranteeing lower fill than edge-id order. High-quality edge-state
+ordering remains a performance-tuning problem.
 
 The topology includes all graph-level possible state transitions, even when a profile later makes them inaccessible. This
 preserves metric independence and allows profile-specific one-way access and turn restrictions to live only in metric
@@ -142,5 +147,5 @@ The v2 edge-state design does not include:
 * perfect customization;
 * partial metric updates;
 * loop-edge turn semantics;
-* nested-dissection ordering implementation;
+* native external nested-dissection integration for edge-state CCH;
 * performance tuning beyond correctness-safe smoke metrics.

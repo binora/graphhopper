@@ -29,7 +29,7 @@ class EdgeBasedCCHPerformanceStorageGateTest {
         long started = System.nanoTime();
         EdgeStateCCHInputGraph edgeGraph = EdgeStateCCHInputBuilder.fromGraph(graph);
         EdgeStateCCHTopology edgeTopology = new EdgeStateCCHTopologyBuilder()
-                .build(edgeGraph, CCHNodeOrder.identity(edgeGraph.getStates()));
+                .buildFromBaseNodeOrder(edgeGraph, baseCoordinateOrder(graph));
         CCHMetric metric = new EdgeBasedCCHMetricCustomizer().customize(edgeTopology,
                 new EdgeBasedCCHMetricSource(graph, weighting, edgeGraph, edgeTopology.getTopology()));
         EdgeBasedCCHQuery query = new EdgeBasedCCHQuery(graph, weighting, edgeTopology, metric);
@@ -60,7 +60,7 @@ class EdgeBasedCCHPerformanceStorageGateTest {
                 BaseGraphCCHSupportBuilder.fromGraph(graph), CCHNodeOrder.identity(graph.getNodes()));
         EdgeStateCCHInputGraph edgeGraph = EdgeStateCCHInputBuilder.fromGraph(graph);
         EdgeStateCCHTopology edgeTopology = new EdgeStateCCHTopologyBuilder()
-                .build(edgeGraph, CCHNodeOrder.identity(edgeGraph.getStates()));
+                .buildFromBaseNodeOrder(edgeGraph, baseCoordinateOrder(graph));
 
         CCHDataAccessStore writer = store("compat");
         writer.saveTopology(nodeTopology);
@@ -124,6 +124,11 @@ class EdgeBasedCCHPerformanceStorageGateTest {
             }
         }
         return graph;
+    }
+
+    private static CCHNodeOrder baseCoordinateOrder(BaseGraph graph) {
+        return new CoordinateNestedDissectionCCHNodeOrderProvider(graph, 4)
+                .build(BaseGraphCCHSupportBuilder.fromGraph(graph));
     }
 
     private static final class DistanceTurnCostWeighting implements Weighting {

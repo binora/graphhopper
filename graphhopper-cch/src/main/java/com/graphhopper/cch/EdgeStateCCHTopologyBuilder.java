@@ -8,6 +8,7 @@ import java.util.Objects;
 
 public final class EdgeStateCCHTopologyBuilder {
     private final CCHTopologyBuilder topologyBuilder = new CCHTopologyBuilder();
+    private final EdgeStateCCHNodeOrderBuilder edgeOrderBuilder = new EdgeStateCCHNodeOrderBuilder();
 
     public EdgeStateCCHTopology build(EdgeStateCCHInputGraph edgeStateInputGraph, CCHNodeOrder order) {
         Objects.requireNonNull(edgeStateInputGraph, "edgeStateInputGraph");
@@ -20,5 +21,14 @@ public final class EdgeStateCCHTopologyBuilder {
 
     public EdgeStateCCHTopology build(BaseGraph graph, CCHNodeOrder order) {
         return build(EdgeStateCCHInputBuilder.fromGraph(graph), order);
+    }
+
+    public EdgeStateCCHTopology buildFromBaseNodeOrder(EdgeStateCCHInputGraph edgeStateInputGraph,
+                                                       CCHNodeOrder baseNodeOrder) {
+        return build(edgeStateInputGraph, edgeOrderBuilder.build(edgeStateInputGraph, baseNodeOrder));
+    }
+
+    public EdgeStateCCHTopology buildFromBaseNodeOrder(BaseGraph graph, CCHNodeOrder baseNodeOrder) {
+        return buildFromBaseNodeOrder(EdgeStateCCHInputBuilder.fromGraph(graph), baseNodeOrder);
     }
 }
