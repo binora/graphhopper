@@ -15,6 +15,7 @@ public final class CCHMetric {
     private static final byte NONE = 0;
     private static final byte DIRECT = 1;
     private static final byte SHORTCUT = 2;
+    private static final byte EDGE_TRANSITION = 3;
 
     private final double[] weight;
     private final long[] millis;
@@ -25,6 +26,16 @@ public final class CCHMetric {
     private final int[] skippedArc1;
     private final int[] skippedArc2;
     private final long[] tieBreakKey;
+    private final int[] incomingEdgeKey;
+    private final int[] viaNode;
+    private final int[] outgoingEdgeKey;
+    private final int[] outgoingBaseEdge;
+    private final boolean[] outgoingReverse;
+    private final double[] turnWeight;
+    private final long[] turnMillis;
+    private final double[] edgeWeight;
+    private final long[] edgeMillis;
+    private final double[] edgeDistance;
 
     public CCHMetric(int arcs) {
         if (arcs < 0)
@@ -38,6 +49,16 @@ public final class CCHMetric {
         skippedArc1 = new int[arcs];
         skippedArc2 = new int[arcs];
         tieBreakKey = new long[arcs];
+        incomingEdgeKey = new int[arcs];
+        viaNode = new int[arcs];
+        outgoingEdgeKey = new int[arcs];
+        outgoingBaseEdge = new int[arcs];
+        outgoingReverse = new boolean[arcs];
+        turnWeight = new double[arcs];
+        turnMillis = new long[arcs];
+        edgeWeight = new double[arcs];
+        edgeMillis = new long[arcs];
+        edgeDistance = new double[arcs];
         Arrays.fill(weight, Double.POSITIVE_INFINITY);
         Arrays.fill(millis, Long.MAX_VALUE);
         Arrays.fill(distance, Double.POSITIVE_INFINITY);
@@ -45,6 +66,10 @@ public final class CCHMetric {
         Arrays.fill(skippedArc1, CCHStorage.NO_ARC);
         Arrays.fill(skippedArc2, CCHStorage.NO_ARC);
         Arrays.fill(tieBreakKey, Long.MAX_VALUE);
+        Arrays.fill(incomingEdgeKey, CCHStorage.NO_ARC);
+        Arrays.fill(viaNode, CCHStorage.NO_ARC);
+        Arrays.fill(outgoingEdgeKey, CCHStorage.NO_ARC);
+        Arrays.fill(outgoingBaseEdge, CCHStorage.NO_ARC);
     }
 
     private CCHMetric(double[] weight, long[] millis, double[] distance, byte[] provenanceType,
@@ -59,6 +84,20 @@ public final class CCHMetric {
         this.skippedArc1 = Objects.requireNonNull(skippedArc1, "skippedArc1").clone();
         this.skippedArc2 = Objects.requireNonNull(skippedArc2, "skippedArc2").clone();
         this.tieBreakKey = Objects.requireNonNull(tieBreakKey, "tieBreakKey").clone();
+        incomingEdgeKey = new int[weight.length];
+        viaNode = new int[weight.length];
+        outgoingEdgeKey = new int[weight.length];
+        outgoingBaseEdge = new int[weight.length];
+        outgoingReverse = new boolean[weight.length];
+        turnWeight = new double[weight.length];
+        turnMillis = new long[weight.length];
+        edgeWeight = new double[weight.length];
+        edgeMillis = new long[weight.length];
+        edgeDistance = new double[weight.length];
+        Arrays.fill(incomingEdgeKey, CCHStorage.NO_ARC);
+        Arrays.fill(viaNode, CCHStorage.NO_ARC);
+        Arrays.fill(outgoingEdgeKey, CCHStorage.NO_ARC);
+        Arrays.fill(outgoingBaseEdge, CCHStorage.NO_ARC);
         checkRawLengths();
         checkRawValues();
     }
@@ -99,6 +138,11 @@ public final class CCHMetric {
                 return CCHMetricProvenance.direct(baseEdge[cchArc], reverse[cchArc]);
             case SHORTCUT:
                 return CCHMetricProvenance.shortcut(skippedArc1[cchArc], skippedArc2[cchArc]);
+            case EDGE_TRANSITION:
+                return CCHMetricProvenance.edgeTransition(incomingEdgeKey[cchArc], viaNode[cchArc],
+                        outgoingEdgeKey[cchArc], outgoingBaseEdge[cchArc], outgoingReverse[cchArc],
+                        turnWeight[cchArc], turnMillis[cchArc], edgeWeight[cchArc], edgeMillis[cchArc],
+                        edgeDistance[cchArc]);
             case NONE:
                 return CCHMetricProvenance.none();
             default:
@@ -114,6 +158,11 @@ public final class CCHMetric {
     public boolean isShortcut(int cchArc) {
         checkArc(cchArc);
         return provenanceType[cchArc] == SHORTCUT;
+    }
+
+    public boolean isEdgeTransition(int cchArc) {
+        checkArc(cchArc);
+        return provenanceType[cchArc] == EDGE_TRANSITION;
     }
 
     public int getBaseEdge(int cchArc) {
@@ -134,6 +183,41 @@ public final class CCHMetric {
     public int getSkippedArc2(int cchArc) {
         checkArc(cchArc);
         return skippedArc2[cchArc];
+    }
+
+    public int getIncomingEdgeKey(int cchArc) {
+        checkArc(cchArc);
+        return incomingEdgeKey[cchArc];
+    }
+
+    public int getViaNode(int cchArc) {
+        checkArc(cchArc);
+        return viaNode[cchArc];
+    }
+
+    public int getOutgoingEdgeKey(int cchArc) {
+        checkArc(cchArc);
+        return outgoingEdgeKey[cchArc];
+    }
+
+    public double getTurnWeight(int cchArc) {
+        checkArc(cchArc);
+        return turnWeight[cchArc];
+    }
+
+    public long getTurnMillis(int cchArc) {
+        checkArc(cchArc);
+        return turnMillis[cchArc];
+    }
+
+    public double getEdgeWeight(int cchArc) {
+        checkArc(cchArc);
+        return edgeWeight[cchArc];
+    }
+
+    public long getEdgeMillis(int cchArc) {
+        checkArc(cchArc);
+        return edgeMillis[cchArc];
     }
 
     public double[] getWeightArray() {
@@ -189,6 +273,33 @@ public final class CCHMetric {
         tieBreakKey[cchArc] = candidate.getTieBreakKey();
     }
 
+    void setEdgeTransition(CCHMetricCandidate candidate) {
+        int cchArc = candidate.getCCHArc();
+        checkArc(cchArc);
+        CCHMetricProvenance provenance = candidate.getProvenance();
+        if (!provenance.isEdgeTransition())
+            throw new IllegalArgumentException("edge-based metric candidates must use edge-transition provenance");
+        weight[cchArc] = candidate.getWeight();
+        millis[cchArc] = candidate.getMillis();
+        distance[cchArc] = candidate.getDistance();
+        provenanceType[cchArc] = EDGE_TRANSITION;
+        baseEdge[cchArc] = CCHStorage.NO_ARC;
+        reverse[cchArc] = false;
+        skippedArc1[cchArc] = CCHStorage.NO_ARC;
+        skippedArc2[cchArc] = CCHStorage.NO_ARC;
+        tieBreakKey[cchArc] = candidate.getTieBreakKey();
+        incomingEdgeKey[cchArc] = provenance.getIncomingEdgeKey();
+        viaNode[cchArc] = provenance.getViaNode();
+        outgoingEdgeKey[cchArc] = provenance.getOutgoingEdgeKey();
+        outgoingBaseEdge[cchArc] = provenance.getOutgoingBaseEdge();
+        outgoingReverse[cchArc] = provenance.isOutgoingReverse();
+        turnWeight[cchArc] = provenance.getTurnWeight();
+        turnMillis[cchArc] = provenance.getTurnMillis();
+        edgeWeight[cchArc] = provenance.getEdgeWeight();
+        edgeMillis[cchArc] = provenance.getEdgeMillis();
+        edgeDistance[cchArc] = provenance.getEdgeDistance();
+    }
+
     void setShortcut(int cchArc, double weight, long millis, double distance, int firstSkippedArc, int secondSkippedArc) {
         checkArc(cchArc);
         if (!Double.isFinite(weight) || weight < 0)
@@ -210,9 +321,27 @@ public final class CCHMetric {
         skippedArc1[cchArc] = firstSkippedArc;
         skippedArc2[cchArc] = secondSkippedArc;
         tieBreakKey[cchArc] = Long.MAX_VALUE;
+        incomingEdgeKey[cchArc] = CCHStorage.NO_ARC;
+        viaNode[cchArc] = CCHStorage.NO_ARC;
+        outgoingEdgeKey[cchArc] = CCHStorage.NO_ARC;
+        outgoingBaseEdge[cchArc] = CCHStorage.NO_ARC;
+        outgoingReverse[cchArc] = false;
+        turnWeight[cchArc] = 0;
+        turnMillis[cchArc] = 0;
+        edgeWeight[cchArc] = 0;
+        edgeMillis[cchArc] = 0;
+        edgeDistance[cchArc] = 0;
     }
 
     boolean directCandidateIsBetter(CCHMetricCandidate candidate) {
+        return metricCandidateIsBetter(candidate);
+    }
+
+    boolean edgeTransitionCandidateIsBetter(CCHMetricCandidate candidate) {
+        return metricCandidateIsBetter(candidate);
+    }
+
+    private boolean metricCandidateIsBetter(CCHMetricCandidate candidate) {
         int cchArc = candidate.getCCHArc();
         checkArc(cchArc);
         int byWeight = Double.compare(candidate.getWeight(), weight[cchArc]);
@@ -232,7 +361,7 @@ public final class CCHMetric {
         int byWeight = Double.compare(candidateWeight, weight[cchArc]);
         if (byWeight != 0)
             return byWeight < 0;
-        if (provenanceType[cchArc] == DIRECT)
+        if (provenanceType[cchArc] == DIRECT || provenanceType[cchArc] == EDGE_TRANSITION)
             return false;
         if (provenanceType[cchArc] == NONE)
             return true;
