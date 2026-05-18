@@ -56,7 +56,7 @@ Various topics are explained in more detail separately:
  * [LocationIndex](../example/src/main/java/com/graphhopper/example/LocationIndexExample.java): Code about how to get the location index for getting i.e. the nearest edge. 
  * [Hybrid Mode](./core/landmarks.md): Details about speeding up the route calculation via A* and landmarks.
  * [Speed Mode](./core/ch.md): Details about speeding up the route calculations via [Contraction Hierarchies](http://en.wikipedia.org/wiki/Contraction_hierarchies).
- * [Customizable CH](./core/cch.md): Experimental `graphhopper-cch` module with node-based Customizable Contraction Hierarchies.
+ * [Customizable CH](./core/cch.md): Experimental `graphhopper-cch` module with node-based routing and v2 edge-state CCH notes.
  * [Low level API](./core/low-level-api.md): Instructions how to use GraphHopper as a Java library.
  * [Custom Areas and Country Rules](./core/custom-areas-and-country-rules.md): Instructions on how to on how to use and create new SpatialRules. SpatialRules are used to enforce country-specific routing rules.
  * [Turn Restrictions](./core/turn-restrictions.md): Details on how to enable and use turn restrictions.

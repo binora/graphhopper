@@ -23,7 +23,8 @@ also set `lm.disable=true`.
 
 The optional `graphhopper-cch` module adds Customizable Contraction Hierarchies for configured `profiles_cch` profiles.
 These routes are selected before CH/LM/flexible routing and can be skipped per request using
-`customizable_ch.disable=true`. See [Customizable CH](./cch.md) for details and v1 limitations.
+`customizable_ch.disable=true`. See [Customizable CH](./cch.md) for the node-based adapter behavior and v2 edge-state
+turn-cost support matrix.
 
 To calculate a route you have to pick one vehicle and optionally an algorithm like
 `bidirectional_astar`, see the test speedModeVersusHybridMode.
