@@ -4,11 +4,15 @@ package com.graphhopper.cch;
 
 import com.graphhopper.storage.DataAccess;
 import com.graphhopper.storage.Directory;
+import com.graphhopper.util.GHUtility;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeSet;
 
 /**
  * Persistence adapter for prepared CCH topology and metrics.
@@ -18,8 +22,10 @@ import java.util.Objects;
  */
 public final class CCHDataAccessStore {
     private static final String TOPOLOGY_NAME = "cch_topology";
+    private static final String EDGE_TOPOLOGY_NAME = "cch_edge_topology";
     private static final String METRIC_PREFIX = "cch_metric_";
     private static final int TOPOLOGY_MAGIC = 0x43434854;
+    private static final int EDGE_TOPOLOGY_MAGIC = 0x43434554;
     private static final int METRIC_MAGIC = 0x4343484d;
     private static final int VERSION = 1;
 
@@ -40,6 +46,17 @@ public final class CCHDataAccessStore {
     private static final int H_METRIC_PROFILE_HASH = 20;
     private static final int H_METRIC_DATA_BYTES_LOW = 24;
     private static final int H_METRIC_DATA_BYTES_HIGH = 28;
+
+    private static final int H_EDGE_BASE_NODES = 8;
+    private static final int H_EDGE_BASE_EDGES = 12;
+    private static final int H_EDGE_STATES = 16;
+    private static final int H_EDGE_UP_ARCS = 20;
+    private static final int H_EDGE_DOWN_ARCS = 24;
+    private static final int H_EDGE_INPUT_ARCS = 28;
+    private static final int H_EDGE_FINGERPRINT_LOW = 32;
+    private static final int H_EDGE_FINGERPRINT_HIGH = 36;
+    private static final int H_EDGE_DATA_BYTES_LOW = 40;
+    private static final int H_EDGE_DATA_BYTES_HIGH = 44;
 
     private final Directory directory;
     private final int segmentSize;
@@ -137,6 +154,125 @@ public final class CCHDataAccessStore {
         writeHeaderLong(access, H_DATA_BYTES_LOW, H_DATA_BYTES_HIGH, dataBytes);
         access.flush();
         loaded.put(TOPOLOGY_NAME, true);
+    }
+
+    public EdgeStateCCHTopology loadEdgeTopology(int expectedBaseNodes, int expectedBaseEdges) {
+        DataAccess access = access(EDGE_TOPOLOGY_NAME);
+        if (!loadExisting(EDGE_TOPOLOGY_NAME, access))
+            return null;
+        checkHeader(access, EDGE_TOPOLOGY_MAGIC, "edge-state CCH topology");
+        int baseNodes = access.getHeader(H_EDGE_BASE_NODES);
+        if (baseNodes != expectedBaseNodes)
+            throw new IllegalStateException("edge-state CCH topology base node count does not match graph: " + baseNodes + " != " + expectedBaseNodes);
+        int baseEdges = access.getHeader(H_EDGE_BASE_EDGES);
+        if (baseEdges != expectedBaseEdges)
+            throw new IllegalStateException("edge-state CCH topology base edge count does not match graph: " + baseEdges + " != " + expectedBaseEdges);
+        int states = access.getHeader(H_EDGE_STATES);
+        int upArcs = access.getHeader(H_EDGE_UP_ARCS);
+        int downArcs = access.getHeader(H_EDGE_DOWN_ARCS);
+        int inputArcs = access.getHeader(H_EDGE_INPUT_ARCS);
+        long expectedFingerprint = readHeaderLong(access, H_EDGE_FINGERPRINT_LOW, H_EDGE_FINGERPRINT_HIGH);
+        long dataBytes = readHeaderLong(access, H_EDGE_DATA_BYTES_LOW, H_EDGE_DATA_BYTES_HIGH);
+
+        Cursor cursor = new Cursor();
+        int[] stateEdgeKey = readIntArray(access, cursor, states);
+        int[] stateTailNode = readIntArray(access, cursor, states);
+        int[] stateHeadNode = readIntArray(access, cursor, states);
+        int[] edgeKeyToState = readIntArray(access, cursor, baseEdges * 2);
+        int[] transitionInEdgeKey = readIntArray(access, cursor, inputArcs);
+        int[] transitionViaNode = readIntArray(access, cursor, inputArcs);
+        int[] transitionOutEdgeKey = readIntArray(access, cursor, inputArcs);
+        int[] order = readIntArray(access, cursor, states);
+        int[] rank = readIntArray(access, cursor, states);
+        int[] upFirstOut = readIntArray(access, cursor, states + 1);
+        int[] upTail = readIntArray(access, cursor, upArcs);
+        int[] upHead = readIntArray(access, cursor, upArcs);
+        int[] downFirstOut = readIntArray(access, cursor, states + 1);
+        int[] downTail = readIntArray(access, cursor, downArcs);
+        int[] downHead = readIntArray(access, cursor, downArcs);
+        int[] inputArcToCCHArc = readIntArray(access, cursor, inputArcs);
+        boolean[] fillArc = readBooleanArray(access, cursor, upArcs + downArcs);
+        int[] skippedArc1 = readIntArray(access, cursor, upArcs + downArcs);
+        int[] skippedArc2 = readIntArray(access, cursor, upArcs + downArcs);
+        int[] eliminationTreeParent = readIntArray(access, cursor, states);
+        checkBodyLength("edge-state CCH topology", cursor.position, dataBytes);
+
+        EdgeStateCCHInputGraph edgeStateInputGraph = new EdgeStateCCHInputGraph(baseNodes, baseEdges,
+                edgeInputGraphFromTransitions(states, edgeKeyToState, transitionInEdgeKey, transitionOutEdgeKey),
+                stateEdgeKey, stateTailNode, stateHeadNode, edgeKeyToState,
+                transitionInEdgeKey, transitionViaNode, transitionOutEdgeKey);
+        CCHTopology topology = new CCHTopology(CCHNodeOrder.fromOrderAndRank(order, rank),
+                upFirstOut, upTail, upHead, downFirstOut, downTail, downHead,
+                inputArcToCCHArc, fillArc, skippedArc1, skippedArc2);
+        EdgeStateCCHTopology edgeTopology = new EdgeStateCCHTopology(edgeStateInputGraph, topology);
+        long actualFingerprint = edgeTopologyFingerprint(edgeTopology);
+        if (actualFingerprint != expectedFingerprint)
+            throw new IllegalStateException("edge-state CCH topology fingerprint mismatch: " + actualFingerprint + " != " + expectedFingerprint);
+        int[] actualParents = new CCHEliminationTree(topology).getParentArray();
+        if (!Arrays.equals(eliminationTreeParent, actualParents))
+            throw new IllegalStateException("edge-state CCH topology elimination tree metadata does not match topology");
+        return edgeTopology;
+    }
+
+    public void saveEdgeTopology(EdgeStateCCHTopology edgeTopology) {
+        Objects.requireNonNull(edgeTopology, "edgeTopology");
+        DataAccess access = access(EDGE_TOPOLOGY_NAME);
+        checkNotLoaded(EDGE_TOPOLOGY_NAME);
+        EdgeStateCCHInputGraph edgeStateInputGraph = edgeTopology.getEdgeStateInputGraph();
+        CCHTopology topology = edgeTopology.getTopology();
+        int states = edgeStateInputGraph.getStates();
+        int upArcs = topology.getUpArcs();
+        int downArcs = topology.getDownArcs();
+        int arcs = topology.getArcs();
+        int inputArcs = edgeStateInputGraph.getInputGraph().getArcs();
+        long dataBytes = intBytes(states) * 3
+                + intBytes(edgeTopology.getBaseEdges() * 2)
+                + intBytes(inputArcs) * 3
+                + intBytes(states) * 2
+                + intBytes(states + 1) * 2
+                + intBytes(upArcs) * 2
+                + intBytes(downArcs) * 2
+                + intBytes(inputArcs)
+                + intBytes(arcs)
+                + intBytes(arcs) * 2
+                + intBytes(states);
+        access.create(dataBytes);
+
+        Cursor cursor = new Cursor();
+        writeIntArray(access, cursor, edgeStateInputGraph.getStateEdgeKeyArray());
+        writeIntArray(access, cursor, edgeStateInputGraph.getStateTailNodeArray());
+        writeIntArray(access, cursor, edgeStateInputGraph.getStateHeadNodeArray());
+        writeIntArray(access, cursor, edgeStateInputGraph.getEdgeKeyToStateArray());
+        writeIntArray(access, cursor, edgeStateInputGraph.getTransitionInEdgeKeyArray());
+        writeIntArray(access, cursor, edgeStateInputGraph.getTransitionViaNodeArray());
+        writeIntArray(access, cursor, edgeStateInputGraph.getTransitionOutEdgeKeyArray());
+        writeIntArray(access, cursor, topology.getNodeOrder().getOrderArray());
+        writeIntArray(access, cursor, topology.getNodeOrder().getRankArray());
+        writeIntArray(access, cursor, topology.getUpFirstOutArray());
+        writeIntArray(access, cursor, topology.getUpTailArray());
+        writeIntArray(access, cursor, topology.getUpHeadArray());
+        writeIntArray(access, cursor, topology.getDownFirstOutArray());
+        writeIntArray(access, cursor, topology.getDownTailArray());
+        writeIntArray(access, cursor, topology.getDownHeadArray());
+        writeIntArray(access, cursor, topology.getInputArcCCHArcArray());
+        writeBooleanArray(access, cursor, topology.getFillArcArray());
+        writeIntArray(access, cursor, topology.getSkippedArc1Array());
+        writeIntArray(access, cursor, topology.getSkippedArc2Array());
+        writeIntArray(access, cursor, new CCHEliminationTree(topology).getParentArray());
+        checkBodyLength("edge-state CCH topology", cursor.position, dataBytes);
+
+        access.setHeader(H_MAGIC, EDGE_TOPOLOGY_MAGIC);
+        access.setHeader(H_VERSION, VERSION);
+        access.setHeader(H_EDGE_BASE_NODES, edgeTopology.getBaseNodes());
+        access.setHeader(H_EDGE_BASE_EDGES, edgeTopology.getBaseEdges());
+        access.setHeader(H_EDGE_STATES, states);
+        access.setHeader(H_EDGE_UP_ARCS, upArcs);
+        access.setHeader(H_EDGE_DOWN_ARCS, downArcs);
+        access.setHeader(H_EDGE_INPUT_ARCS, inputArcs);
+        writeHeaderLong(access, H_EDGE_FINGERPRINT_LOW, H_EDGE_FINGERPRINT_HIGH, edgeTopologyFingerprint(edgeTopology));
+        writeHeaderLong(access, H_EDGE_DATA_BYTES_LOW, H_EDGE_DATA_BYTES_HIGH, dataBytes);
+        access.flush();
+        loaded.put(EDGE_TOPOLOGY_NAME, true);
     }
 
     public CCHMetric loadMetric(String profile, int expectedProfileHash, CCHTopology topology) {
@@ -243,6 +379,26 @@ public final class CCHDataAccessStore {
         return fingerprint.value();
     }
 
+    static long edgeTopologyFingerprint(EdgeStateCCHTopology edgeTopology) {
+        EdgeStateCCHInputGraph edgeStateInputGraph = edgeTopology.getEdgeStateInputGraph();
+        Fingerprint fingerprint = new Fingerprint();
+        fingerprint.add(EDGE_TOPOLOGY_MAGIC);
+        fingerprint.add(edgeTopology.getBaseNodes());
+        fingerprint.add(edgeTopology.getBaseEdges());
+        fingerprint.add(edgeTopology.getStates());
+        fingerprint.add(edgeStateInputGraph.getStateEdgeKeyArray());
+        fingerprint.add(edgeStateInputGraph.getStateTailNodeArray());
+        fingerprint.add(edgeStateInputGraph.getStateHeadNodeArray());
+        fingerprint.add(edgeStateInputGraph.getEdgeKeyToStateArray());
+        fingerprint.add(edgeStateInputGraph.getTransitionInEdgeKeyArray());
+        fingerprint.add(edgeStateInputGraph.getTransitionViaNodeArray());
+        fingerprint.add(edgeStateInputGraph.getTransitionOutEdgeKeyArray());
+        long topologyFingerprint = topologyFingerprint(edgeTopology.getTopology());
+        fingerprint.add((int) topologyFingerprint);
+        fingerprint.add((int) (topologyFingerprint >>> 32));
+        return fingerprint.value();
+    }
+
     private DataAccess access(String name) {
         return accesses.computeIfAbsent(name, n -> {
             DataAccess existing = directory.getDAs().get(n);
@@ -266,6 +422,32 @@ public final class CCHDataAccessStore {
 
     private static String metricName(String profile) {
         return METRIC_PREFIX + profile;
+    }
+
+    private static CCHInputGraph edgeInputGraphFromTransitions(int states, int[] edgeKeyToState,
+                                                               int[] transitionInEdgeKey,
+                                                               int[] transitionOutEdgeKey) {
+        List<CCHInputArc> arcs = new ArrayList<>(transitionInEdgeKey.length);
+        TreeSet<CCHInputEdge> supportEdges = new TreeSet<>();
+        for (int inputArc = 0; inputArc < transitionInEdgeKey.length; inputArc++) {
+            int from = stateForEdgeKey(edgeKeyToState, transitionInEdgeKey[inputArc]);
+            int to = stateForEdgeKey(edgeKeyToState, transitionOutEdgeKey[inputArc]);
+            int outEdgeKey = transitionOutEdgeKey[inputArc];
+            CCHInputArc arc = new CCHInputArc(from, to, GHUtility.getEdgeFromEdgeKey(outEdgeKey),
+                    (outEdgeKey & 1) == 1, 0, 0, 0);
+            arcs.add(arc);
+            supportEdges.add(new CCHInputEdge(from, to));
+        }
+        return new CCHInputGraph(states, arcs, new ArrayList<>(supportEdges));
+    }
+
+    private static int stateForEdgeKey(int[] edgeKeyToState, int edgeKey) {
+        if (edgeKey < 0 || edgeKey >= edgeKeyToState.length)
+            throw new IllegalStateException("persisted edge key outside state mapping range: " + edgeKey);
+        int state = edgeKeyToState[edgeKey];
+        if (state == EdgeStateCCHInputGraph.NO_STATE)
+            throw new IllegalStateException("persisted edge key does not map to an edge state: " + edgeKey);
+        return state;
     }
 
     private static void checkHeader(DataAccess access, int expectedMagic, String description) {
