@@ -44,6 +44,13 @@ class CCHGraphHopperPersistenceTest {
         CCHStableRoute freshCCH = stable(fresh, freshCCHResponse);
         assertSameBytes("fresh flexible vs CH", stable(fresh, freshFlexibleResponse), stable(fresh, freshCHResponse));
         assertSameBytes("fresh flexible vs CCH", stable(fresh, freshFlexibleResponse), freshCCH);
+        CCHCustomizationResult recustomized = fresh.recustomizeCCHProfile(PROFILE);
+        assertTrue(recustomized.isPersisted());
+        assertEquals(2, recustomized.getMetricGeneration());
+        GHResponse recustomizedCCHResponse = fresh.route(request(RouteMode.CCH));
+        assertFalse(recustomizedCCHResponse.hasErrors(), recustomizedCCHResponse.getErrors().toString());
+        CCHStableRoute recustomizedCCH = stable(fresh, recustomizedCCHResponse);
+        assertSameBytes("fresh CCH vs recustomized CCH", freshCCH, recustomizedCCH);
         fresh.close();
 
         CCHGraphHopper reloaded = configuredHopper(location, true);
@@ -52,7 +59,8 @@ class CCHGraphHopperPersistenceTest {
         GHResponse reloadedCCHResponse = reloaded.route(request(RouteMode.CCH));
         assertFalse(reloadedCCHResponse.hasErrors(), reloadedCCHResponse.getErrors().toString());
         assertTrue(reloadedCCHResponse.getDebugInfo().contains("cch-routing"), reloadedCCHResponse.getDebugInfo());
-        assertSameBytes("fresh CCH vs reloaded CCH", freshCCH, stable(reloaded, reloadedCCHResponse));
+        assertEquals(2, reloaded.getCCHCustomizationStatus().get(0).getMetricGeneration());
+        assertSameBytes("recustomized CCH vs reloaded CCH", recustomizedCCH, stable(reloaded, reloadedCCHResponse));
         reloaded.close();
     }
 
@@ -69,6 +77,22 @@ class CCHGraphHopperPersistenceTest {
         assertTrue(error.getMessage().contains("CCH topology is missing"), error.getMessage());
         assertTrue(error.getMessage().contains("writes are not allowed"), error.getMessage());
         readOnlyWithCCH.close();
+    }
+
+    @Test
+    void recustomizationRequiresWriteAccessForPersistedGraphs() {
+        String location = tempDir.resolve("readonly-recustomize").toString();
+        CCHGraphHopper fresh = configuredHopper(location, true);
+        fresh.importOrLoad();
+        fresh.close();
+
+        CCHGraphHopper reloaded = configuredHopper(location, true);
+        reloaded.setAllowWrites(false);
+        reloaded.importOrLoad();
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> reloaded.recustomizeCCHProfile(PROFILE));
+        assertTrue(error.getMessage().contains("write access"), error.getMessage());
+        reloaded.close();
     }
 
     private CCHGraphHopper configuredHopper(String location, boolean withCCH) {

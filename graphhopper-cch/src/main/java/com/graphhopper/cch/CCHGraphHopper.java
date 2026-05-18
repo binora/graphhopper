@@ -20,12 +20,14 @@ import com.graphhopper.util.TranslationMap;
 import com.graphhopper.util.details.PathDetailsBuilderFactory;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CCHGraphHopper extends GraphHopper {
     private final List<CCHProfile> cchProfiles = new ArrayList<>();
     private CCHNodeOrderProvider cchNodeOrderProvider = new DeterministicCCHNodeOrderBuilder();
-    private Map<String, RoutingCCHGraph> cchGraphs = Collections.emptyMap();
+    private volatile Map<String, RoutingCCHGraph> cchGraphs = Collections.emptyMap();
     private CCHDataAccessStore cchStore;
+    private final AtomicBoolean cchCustomizationInProgress = new AtomicBoolean();
 
     @Override
     public CCHGraphHopper init(GraphHopperConfig ghConfig) {
@@ -71,6 +73,37 @@ public class CCHGraphHopper extends GraphHopper {
 
     public Map<String, RoutingCCHGraph> getCCHGraphs() {
         return cchGraphs;
+    }
+
+    public List<CCHCustomizationStatus> getCCHCustomizationStatus() {
+        List<CCHCustomizationStatus> statuses = new ArrayList<>();
+        boolean busy = cchCustomizationInProgress.get();
+        for (CCHProfile cchProfile : cchProfiles) {
+            String profileName = cchProfile.getProfile();
+            Profile profile = getProfile(profileName);
+            RoutingCCHGraph routingCCHGraph = cchGraphs.get(profileName);
+            CCHTopology topology = routingCCHGraph == null ? null : routingCCHGraph.getTopology();
+            int profileHash = profile == null ? 0 : getProfileHash(profile);
+            int generation = getCCHMetricGeneration(profileName);
+            statuses.add(new CCHCustomizationStatus(profileName, routingCCHGraph != null, busy,
+                    getProperties() != null && generation > 0, profileHash, generation,
+                    topology == null ? 0 : CCHDataAccessStore.topologyFingerprint(topology),
+                    topology == null ? 0 : topology.getNodes(),
+                    topology == null ? 0 : topology.getArcs()));
+        }
+        return statuses;
+    }
+
+    public CCHCustomizationResult recustomizeCCHProfile(String profileName) {
+        Objects.requireNonNull(profileName, "profile");
+        if (!cchCustomizationInProgress.compareAndSet(false, true))
+            throw new CCHCustomizationBusyException("CCH metric recustomization is already running");
+        long startNanos = System.nanoTime();
+        try {
+            return recustomizeCCHProfileInternal(profileName, startNanos);
+        } finally {
+            cchCustomizationInProgress.set(false);
+        }
     }
 
     public CCHGraphHopper setCCHNodeOrderProvider(CCHNodeOrderProvider cchNodeOrderProvider) {
@@ -145,13 +178,18 @@ public class CCHGraphHopper extends GraphHopper {
             Profile profile = getProfile(profileName);
             int profileHash = getProfileHash(profile);
             Weighting weighting = createWeighting(profile, new PMap());
-            CCHMetric metric = cchStore.loadMetric(profileName, profileHash, topology);
+            int metricGeneration = getCCHMetricGeneration(profileName);
+            CCHMetric metric = metricGeneration > 0
+                    ? cchStore.loadMetric(profileName, profileHash, topology, metricGeneration)
+                    : cchStore.loadMetric(profileName, profileHash, topology);
             if (metric == null) {
                 ensureWriteAccessForMissingCCH("metric for profile '" + profileName + "'");
                 metric = new CCHMetricCustomizer().customize(topology,
                         new BaseGraphCCHMetricSource(getBaseGraph(), weighting, topology));
-                cchStore.saveMetric(profileName, profileHash, topology, metric);
+                int newGeneration = metricGeneration > 0 ? metricGeneration + 1 : 1;
+                cchStore.saveMetric(profileName, profileHash, topology, metric, newGeneration);
                 setCCHProfileVersion(profileName, profileHash);
+                setCCHMetricGeneration(profileName, newGeneration);
             }
             prepared.put(profileName, new DefaultRoutingCCHGraph(getBaseGraph(), topology, metric, weighting));
         }
@@ -184,6 +222,82 @@ public class CCHGraphHopper extends GraphHopper {
         StorableProperties properties = getProperties();
         if (properties != null)
             properties.put("graph.profiles.cch." + profile + ".version", version);
+    }
+
+    private int getCCHMetricGeneration(String profile) {
+        StorableProperties properties = getProperties();
+        if (properties == null)
+            return 0;
+        String generation = properties.get("graph.profiles.cch." + profile + ".metric_generation");
+        return generation.isEmpty() ? 0 : Integer.parseInt(generation);
+    }
+
+    private void setCCHMetricGeneration(String profile, int generation) {
+        StorableProperties properties = getProperties();
+        if (properties != null)
+            properties.put("graph.profiles.cch." + profile + ".metric_generation", generation);
+    }
+
+    private CCHCustomizationResult recustomizeCCHProfileInternal(String profileName, long startNanos) {
+        if (getBaseGraph().isClosed())
+            throw new IllegalStateException("You need to create a new GraphHopper instance as it is already closed");
+        if (!isAllowWrites())
+            throw new IllegalStateException("CCH metric recustomization requires write access");
+        if (!hasCCHProfile(profileName)) {
+            if (getProfile(profileName) != null)
+                throw new IllegalArgumentException("profile '" + profileName + "' is not configured in profiles_cch");
+            throw new IllegalArgumentException("CCH profile references unknown profile '" + profileName + "'");
+        }
+
+        RoutingCCHGraph current = cchGraphs.get(profileName);
+        if (current == null)
+            throw new IllegalStateException("CCH profile '" + profileName + "' is not prepared");
+        CCHTopology topology = current.getTopology();
+        if (topology == null)
+            throw new IllegalStateException("CCH topology is missing for profile '" + profileName + "'");
+
+        Profile profile = getProfile(profileName);
+        if (profile == null)
+            throw new IllegalArgumentException("CCH profile references unknown profile '" + profileName + "'");
+        if (profile.hasTurnCosts())
+            throw new IllegalArgumentException("graphhopper-cch v1 only supports node-based profiles without turn costs: '" + profileName + "'");
+        int profileHash = getProfileHash(profile);
+        Weighting weighting = createWeighting(profile, new PMap());
+        CCHMetric metric = new CCHMetricCustomizer().customize(topology,
+                new BaseGraphCCHMetricSource(getBaseGraph(), weighting, topology));
+        RoutingCCHGraph updated = new DefaultRoutingCCHGraph(getBaseGraph(), current.getCCHStorage(), topology, metric, weighting);
+
+        boolean persisted = false;
+        int generation = getCCHMetricGeneration(profileName);
+        if (getProperties() != null) {
+            if (cchStore == null)
+                cchStore = new CCHDataAccessStore(getBaseGraph().getDirectory(), getBaseGraph().getSegmentSize());
+            int newGeneration = generation + 1;
+            if (newGeneration <= 0)
+                throw new IllegalStateException("CCH metric generation overflow for profile '" + profileName + "'");
+            cchStore.saveMetric(profileName, profileHash, topology, metric, newGeneration);
+            setCCHProfileVersion(profileName, profileHash);
+            setCCHMetricGeneration(profileName, newGeneration);
+            getProperties().flush();
+            generation = newGeneration;
+            persisted = true;
+        }
+
+        Map<String, RoutingCCHGraph> swapped = new LinkedHashMap<>(cchGraphs);
+        swapped.put(profileName, updated);
+        cchGraphs = Collections.unmodifiableMap(swapped);
+
+        long elapsedMillis = Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);
+        return new CCHCustomizationResult(profileName, persisted, profileHash, generation,
+                CCHDataAccessStore.topologyFingerprint(topology), topology.getNodes(), topology.getArcs(), elapsedMillis);
+    }
+
+    private boolean hasCCHProfile(String profileName) {
+        for (CCHProfile cchProfile : cchProfiles) {
+            if (cchProfile.getProfile().equals(profileName))
+                return true;
+        }
+        return false;
     }
 
     @Override

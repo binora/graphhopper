@@ -278,7 +278,18 @@ public final class CCHDataAccessStore {
     public CCHMetric loadMetric(String profile, int expectedProfileHash, CCHTopology topology) {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(topology, "topology");
-        String name = metricName(profile);
+        return loadMetric(profile, expectedProfileHash, topology, metricName(profile));
+    }
+
+    public CCHMetric loadMetric(String profile, int expectedProfileHash, CCHTopology topology, int generation) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(topology, "topology");
+        if (generation <= 0)
+            throw new IllegalArgumentException("CCH metric generation must be positive: " + generation);
+        return loadMetric(profile, expectedProfileHash, topology, metricName(profile, generation));
+    }
+
+    private CCHMetric loadMetric(String profile, int expectedProfileHash, CCHTopology topology, String name) {
         DataAccess access = access(name);
         if (!loadExisting(name, access))
             return null;
@@ -313,9 +324,22 @@ public final class CCHDataAccessStore {
         Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(topology, "topology");
         Objects.requireNonNull(metric, "metric");
+        saveMetric(profile, profileHash, topology, metric, metricName(profile));
+    }
+
+    public void saveMetric(String profile, int profileHash, CCHTopology topology, CCHMetric metric, int generation) {
+        Objects.requireNonNull(profile, "profile");
+        Objects.requireNonNull(topology, "topology");
+        Objects.requireNonNull(metric, "metric");
+        if (generation <= 0)
+            throw new IllegalArgumentException("CCH metric generation must be positive: " + generation);
+        saveMetric(profile, profileHash, topology, metric, metricName(profile, generation));
+    }
+
+    private void saveMetric(String profile, int profileHash, CCHTopology topology, CCHMetric metric, String name) {
         if (metric.getArcs() != topology.getArcs())
             throw new IllegalArgumentException("metric and topology arc counts differ: " + metric.getArcs() + " != " + topology.getArcs());
-        String name = metricName(profile);
+        directory.create();
         DataAccess access = access(name);
         checkNotLoaded(name);
         int arcs = metric.getArcs();
@@ -422,6 +446,10 @@ public final class CCHDataAccessStore {
 
     private static String metricName(String profile) {
         return METRIC_PREFIX + profile;
+    }
+
+    private static String metricName(String profile, int generation) {
+        return METRIC_PREFIX + profile + "_" + generation;
     }
 
     private static CCHInputGraph edgeInputGraphFromTransitions(int states, int[] edgeKeyToState,

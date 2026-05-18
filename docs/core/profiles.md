@@ -99,8 +99,9 @@ short for 'Contraction Hierarchies', the underlying technique used to realize sp
 For more information read about the different modes [here](routing.md).
 
 The separate `graphhopper-cch` module also supports experimental Customizable Contraction Hierarchies via
-`profiles_cch` when applications use `CCHGraphHopper` and `CCHGraphHopperConfig`. See [Customizable CH](./cch.md) for
-the node-based adapter behavior, v2 edge-state turn-cost support matrix, and request parameters.
+`profiles_cch`. Embedded applications use `CCHGraphHopper` and `CCHGraphHopperConfig`; the standard server selects the
+CCH adapter automatically when `profiles_cch` is configured. See [Customizable CH](./cch.md) for the node-based adapter,
+admin metric recustomization endpoint, v2 edge-state turn-cost support matrix, and request parameters.
 
 For hybrid mode there is a special feature that allows 're-using' the prepared data for different profiles. You can do
 this like this:

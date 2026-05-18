@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.util.StdDateFormat;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.graphhopper.GraphHopper;
 import com.graphhopper.GraphHopperConfig;
+import com.graphhopper.cch.CCHGraphHopper;
 import com.graphhopper.gtfs.*;
 import com.graphhopper.http.health.GraphHopperHealthCheck;
 import com.graphhopper.isochrone.algorithm.JTSTriangulator;
@@ -298,6 +299,8 @@ public class GraphHopperBundle implements ConfiguredBundle<GraphHopperBundleConf
         environment.jersey().register(MVTResource.class);
         environment.jersey().register(NearestResource.class);
         environment.jersey().register(RouteResource.class);
+        if (graphHopper instanceof CCHGraphHopper && !((CCHGraphHopper) graphHopper).getCCHProfiles().isEmpty())
+            environment.jersey().register(CCHCustomizationResource.class);
         environment.jersey().register(IsochroneResource.class);
         environment.jersey().register(MapMatchingResource.class);
 

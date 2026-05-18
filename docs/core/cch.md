@@ -8,8 +8,10 @@ only node-based `profiles_cch` routing.
 
 ## Enable CCH
 
-CCH is provided by the separate `CCHGraphHopper` adapter. Plain `GraphHopper` does not use `profiles_cch` unless the
-application is wired to instantiate `CCHGraphHopper` and `CCHGraphHopperConfig`.
+CCH is provided by the separate `CCHGraphHopper` adapter. Embedded applications that instantiate plain `GraphHopper`
+directly do not use `profiles_cch`; use `CCHGraphHopper` and `CCHGraphHopperConfig` there. The standard Dropwizard
+server starts `CCHGraphHopper` automatically when the YAML config contains non-empty `profiles_cch`. `profiles_cch`
+cannot currently be combined with `gtfs.file`.
 
 Programmatic setup:
 
@@ -67,6 +69,27 @@ After CCH is disabled, normal GraphHopper selection applies:
 
 The existing `ch.disable` and `lm.disable` parameters do not disable CCH directly.
 
+## Admin Metric Recustomization
+
+CCH metric customization normally runs during `importOrLoad()` and reloads from persisted metric generations. For
+configured `profiles_cch` profiles the server also exposes a synchronous admin recustomization endpoint:
+
+```text
+GET  /cch/customize
+POST /cch/customize/{profile}
+```
+
+`GET /cch/customize` returns one status object per CCH profile, including the active metric generation, profile hash,
+topology fingerprint, node count, and arc count. `POST /cch/customize/{profile}` rebuilds only that profile's metric
+against the already prepared graph-level topology. The topology/order is not rebuilt. The new metric is written as a new
+generation, the active generation property is flushed after the metric file, and runtime routing switches to the new
+immutable `RoutingCCHGraph` only after persistence succeeds.
+
+Only one recustomization can run at a time. Concurrent requests return HTTP `409 Conflict`. Recustomization requires
+write access; read-only reloads can route with persisted CCH but cannot replace metrics. This endpoint does not reload
+YAML, does not accept per-request `custom_model` payloads, and does not implement partial traffic updates. It is an
+operational hook for rebuilding the current configured profile metric without rebuilding the graph-level CCH topology.
+
 ## Support Matrix
 
 | Capability | `CCHGraphHopper` adapter | Module core |
@@ -75,6 +98,7 @@ The existing `ch.disable` and `lm.disable` parameters do not disable CCH directl
 | Tower-node endpoints | Supported | Supported |
 | Coordinate requests using `QueryGraph` virtual endpoints | Supported | Supported |
 | Persisted topology and per-profile metric reload | Supported for node-based CCH | Supported for node-based and edge-state storage objects |
+| Admin metric recustomization for configured profiles | Supported via `/cch/customize/{profile}` and Java API | Supported for node-based metrics |
 | Turn costs and turn restrictions | Not exposed through `profiles_cch`; turn-cost profiles are rejected clearly | Supported by the edge-state v2 core |
 | Edge-based CCH route query/unpacking | Not exposed through `CCHGraphHopper` yet | Supported by `EdgeStateCCHInputGraph`, `EdgeStateCCHTopology`, `EdgeBasedCCHMetricSource`, `EdgeBasedCCHQuery`, and `EdgeBasedCCHPathUnpacker` |
 | Native RoutingKit dependency | Not used | Not used |
@@ -96,8 +120,8 @@ implementation boundary, not yet a `profiles_cch` adapter path.
 ## Module API Boundaries
 
 The stable application-facing entry points for node-based CCH are `CCHGraphHopper`, `CCHGraphHopperConfig`,
-`CCHProfile`, and `RoutingCCHGraph`. Applications should enable CCH through these types instead of replacing `BaseGraph`
-or implementing GraphHopper's `Graph` interface with a CCH overlay.
+`CCHProfile`, `RoutingCCHGraph`, and `CCHGraphHopper.recustomizeCCHProfile(String)`. Applications should enable CCH
+through these types instead of replacing `BaseGraph` or implementing GraphHopper's `Graph` interface with a CCH overlay.
 
 The node order is pluggable through `CCHNodeOrderProvider`. The default provider is deterministic and portable, but it
 is not a high-quality nested-dissection order. For performance experiments, export the CCH support graph and import an

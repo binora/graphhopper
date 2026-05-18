@@ -37,6 +37,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static com.graphhopper.cch.CCHRouter.CUSTOMIZABLE_CH_DISABLE;
 import static com.graphhopper.util.Parameters.Algorithms.ALT_ROUTE;
@@ -180,6 +185,54 @@ class CCHGraphHopperAdapterTest {
         assertEquals(flexibleResponse.getBest().getPoints(), cchResponse.getBest().getPoints());
     }
 
+    @Test
+    void recustomizesMetricAndAtomicallySwapsRuntimeGraph() throws Exception {
+        TestCCHGraphHopper hopper = preparedHopper();
+        assertEquals(3, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
+
+        hopper.weighting.setMultiplier(2);
+        hopper.weighting.blockDuringCustomization();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<CCHCustomizationResult> future = executor.submit(() -> hopper.recustomizeCCHProfile("profile"));
+            assertTrue(hopper.weighting.awaitCustomizationStarted());
+
+            CCHCustomizationBusyException busy = assertThrows(CCHCustomizationBusyException.class,
+                    () -> hopper.recustomizeCCHProfile("profile"));
+            assertTrue(busy.getMessage().contains("already running"), busy.getMessage());
+            assertEquals(3, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
+
+            hopper.weighting.releaseCustomization();
+            CCHCustomizationResult result = future.get(5, TimeUnit.SECONDS);
+            assertEquals("profile", result.getProfile());
+            assertFalse(result.isPersisted());
+            assertEquals(0, result.getMetricGeneration());
+            assertEquals(6, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
+            assertEquals(1, hopper.getCCHCustomizationStatus().size());
+            assertFalse(hopper.getCCHCustomizationStatus().get(0).isBusy());
+        } finally {
+            hopper.weighting.releaseCustomization();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void recustomizationRejectsInvalidRequestsWithoutSwappingMetric() {
+        TestCCHGraphHopper hopper = preparedHopper();
+        assertEquals(3, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
+
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
+                () -> hopper.recustomizeCCHProfile("missing"));
+        assertTrue(missing.getMessage().contains("unknown profile 'missing'"), missing.getMessage());
+
+        hopper.weighting.setMultiplier(2);
+        hopper.setAllowWrites(false);
+        IllegalStateException readOnly = assertThrows(IllegalStateException.class,
+                () -> hopper.recustomizeCCHProfile("profile"));
+        assertTrue(readOnly.getMessage().contains("write access"), readOnly.getMessage());
+        assertEquals(3, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
+    }
+
     private static String profilesCCHString(CCHGraphHopperConfig config) {
         StringBuilder builder = new StringBuilder("profiles_cch:\n");
         for (CCHProfile profile : config.getCCHProfiles()) {
@@ -313,6 +366,34 @@ class CCHGraphHopperAdapterTest {
     }
 
     private static final class DistanceWeighting implements Weighting {
+        private volatile double multiplier = 1;
+        private volatile CountDownLatch customizationStarted;
+        private volatile CountDownLatch customizationRelease;
+        private final AtomicBoolean customizationBlockConsumed = new AtomicBoolean();
+
+        private void setMultiplier(double multiplier) {
+            this.multiplier = multiplier;
+        }
+
+        private void blockDuringCustomization() {
+            customizationBlockConsumed.set(false);
+            customizationStarted = new CountDownLatch(1);
+            customizationRelease = new CountDownLatch(1);
+        }
+
+        private boolean awaitCustomizationStarted() throws InterruptedException {
+            CountDownLatch latch = customizationStarted;
+            return latch != null && latch.await(5, TimeUnit.SECONDS);
+        }
+
+        private void releaseCustomization() {
+            CountDownLatch latch = customizationRelease;
+            if (latch != null)
+                latch.countDown();
+            customizationStarted = null;
+            customizationRelease = null;
+        }
+
         @Override
         public double calcMinWeightPerDistance() {
             return 1;
@@ -320,12 +401,13 @@ class CCHGraphHopperAdapterTest {
 
         @Override
         public double calcEdgeWeight(EdgeIteratorState edgeState, boolean reverse) {
-            return edgeState.getDistance();
+            awaitIfBlocked();
+            return edgeState.getDistance() * multiplier;
         }
 
         @Override
         public long calcEdgeMillis(EdgeIteratorState edgeState, boolean reverse) {
-            return Math.round(edgeState.getDistance() * 10);
+            return Math.round(edgeState.getDistance() * 10 * multiplier);
         }
 
         @Override
@@ -346,6 +428,22 @@ class CCHGraphHopperAdapterTest {
         @Override
         public String getName() {
             return "distance";
+        }
+
+        private void awaitIfBlocked() {
+            CountDownLatch started = customizationStarted;
+            CountDownLatch release = customizationRelease;
+            if (started == null || release == null)
+                return;
+            if (!customizationBlockConsumed.compareAndSet(false, true))
+                return;
+            started.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
         }
     }
 }

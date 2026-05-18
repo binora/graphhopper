@@ -20,6 +20,8 @@ package com.graphhopper.http;
 
 import com.graphhopper.GraphHopper;
 import com.graphhopper.GraphHopperConfig;
+import com.graphhopper.cch.CCHGraphHopper;
+import com.graphhopper.cch.CCHGraphHopperConfig;
 import com.graphhopper.gtfs.GraphHopperGtfs;
 import io.dropwizard.lifecycle.Managed;
 import org.slf4j.Logger;
@@ -31,12 +33,20 @@ public class GraphHopperManaged implements Managed {
     private final GraphHopper graphHopper;
 
     public GraphHopperManaged(GraphHopperConfig configuration) {
-        if (configuration.has("gtfs.file")) {
+        GraphHopperConfig graphHopperConfig = configuration;
+        if (CCHGraphHopperConfig.hasProfilesCCH(configuration)) {
+            if (configuration.has("gtfs.file"))
+                throw new IllegalArgumentException("profiles_cch cannot be used together with gtfs.file");
+            graphHopper = new CCHGraphHopper();
+            graphHopperConfig = configuration instanceof CCHGraphHopperConfig
+                    ? configuration
+                    : new CCHGraphHopperConfig(configuration);
+        } else if (configuration.has("gtfs.file")) {
             graphHopper = new GraphHopperGtfs(configuration);
         } else {
             graphHopper = new GraphHopper();
         }
-        graphHopper.init(configuration);
+        graphHopper.init(graphHopperConfig);
     }
 
     @Override
