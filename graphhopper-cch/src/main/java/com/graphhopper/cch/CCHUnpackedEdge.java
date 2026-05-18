@@ -2,6 +2,8 @@
 
 package com.graphhopper.cch;
 
+import com.graphhopper.util.GHUtility;
+
 public final class CCHUnpackedEdge {
     private final int baseEdge;
     private final boolean reverse;
@@ -39,6 +41,10 @@ public final class CCHUnpackedEdge {
 
     public boolean isReverse() {
         return reverse;
+    }
+
+    public int getEdgeKey() {
+        return GHUtility.createEdgeKey(baseEdge, reverse);
     }
 
     public int getFrom() {
