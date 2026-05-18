@@ -14,6 +14,10 @@ public final class EdgeBasedCCHQueryResult {
     private final double firstEdgeWeight;
     private final long firstEdgeMillis;
     private final double firstEdgeDistance;
+    private final CCHBoundaryArc sourceBoundaryArc;
+    private final CCHBoundaryArc targetBoundaryArc;
+    private final double targetBoundaryTurnWeight;
+    private final long targetBoundaryTurnMillis;
     private final double weight;
     private final long millis;
     private final double distance;
@@ -24,6 +28,17 @@ public final class EdgeBasedCCHQueryResult {
                             int firstEdgeKey, double firstEdgeWeight, long firstEdgeMillis,
                             double firstEdgeDistance, double weight, long millis, double distance,
                             int visitedNodes, CCHQueryResult coreResult) {
+        this(found, sourceNode, targetNode, sourceState, targetState, firstEdgeKey, firstEdgeWeight,
+                firstEdgeMillis, firstEdgeDistance, null, null, 0, 0, weight, millis, distance,
+                visitedNodes, coreResult);
+    }
+
+    EdgeBasedCCHQueryResult(boolean found, int sourceNode, int targetNode, int sourceState, int targetState,
+                            int firstEdgeKey, double firstEdgeWeight, long firstEdgeMillis,
+                            double firstEdgeDistance, CCHBoundaryArc sourceBoundaryArc,
+                            CCHBoundaryArc targetBoundaryArc, double targetBoundaryTurnWeight,
+                            long targetBoundaryTurnMillis, double weight, long millis, double distance,
+                            int visitedNodes, CCHQueryResult coreResult) {
         this.found = found;
         this.sourceNode = sourceNode;
         this.targetNode = targetNode;
@@ -33,6 +48,10 @@ public final class EdgeBasedCCHQueryResult {
         this.firstEdgeWeight = firstEdgeWeight;
         this.firstEdgeMillis = firstEdgeMillis;
         this.firstEdgeDistance = firstEdgeDistance;
+        this.sourceBoundaryArc = sourceBoundaryArc;
+        this.targetBoundaryArc = targetBoundaryArc;
+        this.targetBoundaryTurnWeight = targetBoundaryTurnWeight;
+        this.targetBoundaryTurnMillis = targetBoundaryTurnMillis;
         this.weight = weight;
         this.millis = millis;
         this.distance = distance;
@@ -85,6 +104,22 @@ public final class EdgeBasedCCHQueryResult {
 
     public double getFirstEdgeDistance() {
         return firstEdgeDistance;
+    }
+
+    public CCHBoundaryArc getSourceBoundaryArc() {
+        return sourceBoundaryArc;
+    }
+
+    public CCHBoundaryArc getTargetBoundaryArc() {
+        return targetBoundaryArc;
+    }
+
+    public double getTargetBoundaryTurnWeight() {
+        return targetBoundaryTurnWeight;
+    }
+
+    public long getTargetBoundaryTurnMillis() {
+        return targetBoundaryTurnMillis;
     }
 
     public double getWeight() {

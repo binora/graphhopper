@@ -35,6 +35,11 @@ public final class EdgeBasedCCHPathUnpacker {
                     Double.POSITIVE_INFINITY, 0, Double.POSITIVE_INFINITY);
 
         List<CCHUnpackedEdge> edges = new ArrayList<>();
+        if (result.getSourceBoundaryArc() != null) {
+            edges.add(fromBoundaryArc(result.getSourceBoundaryArc(),
+                    result.getSourceBoundaryArc().getWeight(),
+                    result.getSourceBoundaryArc().getMillis()));
+        }
         if (result.getFirstEdgeKey() != CCHStorage.NO_ARC) {
             int state = result.getSourceState();
             edges.add(new CCHUnpackedEdge(
@@ -50,6 +55,12 @@ public final class EdgeBasedCCHPathUnpacker {
             for (int cchArc : reconstructOverlayArcs(result.getCoreResult())) {
                 unpackArc(cchArc, edges);
             }
+        }
+        if (result.getTargetBoundaryArc() != null) {
+            CCHBoundaryArc arc = result.getTargetBoundaryArc();
+            edges.add(fromBoundaryArc(arc,
+                    arc.getWeight() + result.getTargetBoundaryTurnWeight(),
+                    saturatedAdd(arc.getMillis(), result.getTargetBoundaryTurnMillis())));
         }
         validateContiguity(result.getSourceNode(), result.getTargetNode(), edges);
         Totals totals = totals(edges);
@@ -127,6 +138,18 @@ public final class EdgeBasedCCHPathUnpacker {
         } else {
             throw new IllegalStateException("edge-state CCH arc " + cchArc + " has no unpackable provenance");
         }
+    }
+
+    private static CCHUnpackedEdge fromBoundaryArc(CCHBoundaryArc arc, double weight, long millis) {
+        return new CCHUnpackedEdge(
+                arc.getEdgeId(),
+                arc.getEdgeKey(),
+                (arc.getEdgeKey() & 1) == 1,
+                arc.getTailNode(),
+                arc.getHeadNode(),
+                weight,
+                millis,
+                arc.getDistance());
     }
 
     private static void validateContiguity(int source, int target, List<CCHUnpackedEdge> edges) {

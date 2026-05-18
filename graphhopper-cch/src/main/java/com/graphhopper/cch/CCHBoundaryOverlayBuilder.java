@@ -26,22 +26,38 @@ public final class CCHBoundaryOverlayBuilder {
             .thenComparingDouble(CCHBoundaryArc::getDistance)
             .thenComparingInt(CCHBoundaryArc::getOriginalEdgeKey)
             .thenComparing(CCHBoundaryArc::isVirtualEdge);
+    private final boolean allowTurnCosts;
+
+    public CCHBoundaryOverlayBuilder() {
+        this(false);
+    }
+
+    CCHBoundaryOverlayBuilder(boolean allowTurnCosts) {
+        this.allowTurnCosts = allowTurnCosts;
+    }
 
     public CCHBoundaryOverlay build(int sourceNode, int targetNode, QueryGraph queryGraph,
                                     CCHTopology topology, Weighting weighting) {
-        Objects.requireNonNull(queryGraph, "queryGraph");
         Objects.requireNonNull(topology, "topology");
+        return build(sourceNode, targetNode, queryGraph, topology.getNodes(), weighting);
+    }
+
+    public CCHBoundaryOverlay build(int sourceNode, int targetNode, QueryGraph queryGraph,
+                                    int baseNodes, Weighting weighting) {
+        Objects.requireNonNull(queryGraph, "queryGraph");
         Objects.requireNonNull(weighting, "weighting");
         checkEndpoint("sourceNode", sourceNode, queryGraph);
         checkEndpoint("targetNode", targetNode, queryGraph);
-        if (queryGraph.getBaseGraph().getNodes() != topology.getNodes())
-            throw new IllegalArgumentException("query graph base node count and CCH topology node count differ: "
-                    + queryGraph.getBaseGraph().getNodes() + " != " + topology.getNodes());
-        if (weighting.hasTurnCosts())
+        if (baseNodes < 0)
+            throw new IllegalArgumentException("baseNodes must be >= 0");
+        if (queryGraph.getBaseGraph().getNodes() != baseNodes)
+            throw new IllegalArgumentException("query graph base node count and prepared base node count differ: "
+                    + queryGraph.getBaseGraph().getNodes() + " != " + baseNodes);
+        if (!allowTurnCosts && weighting.hasTurnCosts())
             throw new IllegalArgumentException("graphhopper-cch boundary overlays only support node-based weightings without turn costs");
 
-        boolean sourceCore = isCoreNode(sourceNode, queryGraph, topology);
-        boolean targetCore = isCoreNode(targetNode, queryGraph, topology);
+        boolean sourceCore = isCoreNode(sourceNode, queryGraph, baseNodes);
+        boolean targetCore = isCoreNode(targetNode, queryGraph, baseNodes);
         List<CCHBoundaryArc> sourceOutgoing = sourceCore ? new ArrayList<>() : outgoingArcs(sourceNode, queryGraph, weighting);
         List<CCHBoundaryArc> sourceIncoming = sourceCore ? new ArrayList<>() : incomingArcs(sourceNode, queryGraph, weighting);
         List<CCHBoundaryArc> targetOutgoing = targetCore ? new ArrayList<>() : outgoingArcs(targetNode, queryGraph, weighting);
@@ -145,8 +161,8 @@ public final class CCHBoundaryOverlayBuilder {
         return new ArrayList<>(sorted);
     }
 
-    private static boolean isCoreNode(int node, QueryGraph queryGraph, CCHTopology topology) {
-        return node < topology.getNodes() && !queryGraph.isVirtualNode(node);
+    private static boolean isCoreNode(int node, QueryGraph queryGraph, int baseNodes) {
+        return node < baseNodes && !queryGraph.isVirtualNode(node);
     }
 
     private static void checkEndpoint(String name, int node, QueryGraph queryGraph) {
