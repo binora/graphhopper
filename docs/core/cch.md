@@ -99,6 +99,22 @@ The stable application-facing entry points for node-based CCH are `CCHGraphHoppe
 `CCHProfile`, and `RoutingCCHGraph`. Applications should enable CCH through these types instead of replacing `BaseGraph`
 or implementing GraphHopper's `Graph` interface with a CCH overlay.
 
+The node order is pluggable through `CCHNodeOrderProvider`. The default provider is deterministic and portable, but it
+is not a high-quality nested-dissection order. For performance experiments, export the CCH support graph and import an
+offline order:
+
+```java
+CCHInputGraph supportGraph = BaseGraphCCHSupportBuilder.fromGraph(hopper.getBaseGraph());
+CCHOrderIO.writeMetisGraph(supportGraph, Path.of("car-cch.graph"));
+
+// Run an external orderer such as ndmetis, KaHIP node_ordering, or InertialFlowCutter offline.
+hopper.setCCHNodeOrderProvider(new FileCCHNodeOrderProvider(Path.of("car-cch.order")));
+```
+
+The imported order file is a whitespace-separated list of original node ids in increasing rank order. The default file
+provider expects zero-based GraphHopper node ids; use `FileCCHNodeOrderProvider.Numbering.ONE_BASED` for one-based
+orders. The module validates the imported order as a full permutation before preparing CCH.
+
 The extension boundary is `CCHMetricSource`. Metric customization consumes deterministic metric candidates rather than
 raw `BaseGraph` edges, which keeps the node-based adapter separate from edge-state and turn-cost sources. The edge-state
 model is described in [Edge-State CCH Design For Turn Costs](./cch-edge-state-design.md).
