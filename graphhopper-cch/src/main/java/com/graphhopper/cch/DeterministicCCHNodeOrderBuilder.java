@@ -10,7 +10,8 @@ import java.util.Objects;
  * Deterministic v1 ordering that is correct and reproducible, but does not claim separator quality. Better nested
  * dissection implementations can replace this builder while still returning the same {@link CCHNodeOrder} abstraction.
  */
-public final class DeterministicCCHNodeOrderBuilder {
+public final class DeterministicCCHNodeOrderBuilder implements CCHNodeOrderProvider {
+    @Override
     public CCHNodeOrder build(CCHInputGraph inputGraph) {
         Objects.requireNonNull(inputGraph, "inputGraph");
         int[] degree = new int[inputGraph.getNodes()];

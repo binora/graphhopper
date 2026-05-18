@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.graphhopper.cch.CCHRouter.CUSTOMIZABLE_CH_DISABLE;
 import static com.graphhopper.util.Parameters.Algorithms.ALT_ROUTE;
@@ -87,6 +88,41 @@ class CCHGraphHopperAdapterTest {
         assertEquals(3, path.getRouteWeight(), 1.e-9);
         assertEquals(30, path.getTime());
         assertEquals(3, path.getDistance(), 1.e-9);
+    }
+
+    @Test
+    void usesConfiguredNodeOrderProvider() {
+        AtomicBoolean called = new AtomicBoolean();
+        TestCCHGraphHopper hopper = preparedHopper(inputGraph -> {
+            called.set(true);
+            assertEquals(3, inputGraph.getNodes());
+            return CCHNodeOrder.fromOrder(new int[]{1, 0, 2});
+        });
+
+        assertTrue(called.get());
+        assertArrayEquals(new int[]{1, 0, 2},
+                hopper.getCCHGraphs().get("profile").getTopology().getNodeOrder().getOrderArray());
+    }
+
+    @Test
+    void rejectsInvalidNodeOrderProviderResults() {
+        TestCCHGraphHopper wrongNodeCount = unpreparedHopper(inputGraph -> CCHNodeOrder.identity(2));
+        IllegalArgumentException mismatch = assertThrows(IllegalArgumentException.class, wrongNodeCount::runPostProcessing);
+        assertTrue(mismatch.getMessage().contains("provider returned 2 nodes"), mismatch.getMessage());
+
+        TestCCHGraphHopper nullOrder = unpreparedHopper(inputGraph -> null);
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class, nullOrder::runPostProcessing);
+        assertTrue(missing.getMessage().contains("provider returned null"), missing.getMessage());
+    }
+
+    @Test
+    void rejectsNodeOrderProviderChangesAfterPreparation() {
+        TestCCHGraphHopper hopper = preparedHopper();
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> hopper.setCCHNodeOrderProvider(new DeterministicCCHNodeOrderBuilder()));
+
+        assertTrue(error.getMessage().contains("after CCH was prepared"), error.getMessage());
     }
 
     @Test
@@ -160,6 +196,18 @@ class CCHGraphHopperAdapterTest {
     }
 
     private static TestCCHGraphHopper preparedHopper() {
+        TestCCHGraphHopper hopper = unpreparedHopper(new DeterministicCCHNodeOrderBuilder());
+        hopper.runPostProcessing();
+        return hopper;
+    }
+
+    private static TestCCHGraphHopper preparedHopper(CCHNodeOrderProvider nodeOrderProvider) {
+        TestCCHGraphHopper hopper = unpreparedHopper(nodeOrderProvider);
+        hopper.runPostProcessing();
+        return hopper;
+    }
+
+    private static TestCCHGraphHopper unpreparedHopper(CCHNodeOrderProvider nodeOrderProvider) {
         EncodingManager encodingManager = new EncodingManager.Builder()
                 .add(RoadClass.create())
                 .add(RoadEnvironment.create())
@@ -181,8 +229,8 @@ class CCHGraphHopperAdapterTest {
         TestCCHGraphHopper hopper = new TestCCHGraphHopper();
         hopper.setProfiles(new Profile("profile"));
         hopper.setCCHProfiles(new CCHProfile("profile"));
+        hopper.setCCHNodeOrderProvider(nodeOrderProvider);
         hopper.setGraph(graph, encodingManager);
-        hopper.runPostProcessing();
         return hopper;
     }
 

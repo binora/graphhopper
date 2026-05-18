@@ -23,6 +23,7 @@ import java.util.*;
 
 public class CCHGraphHopper extends GraphHopper {
     private final List<CCHProfile> cchProfiles = new ArrayList<>();
+    private CCHNodeOrderProvider cchNodeOrderProvider = new DeterministicCCHNodeOrderBuilder();
     private Map<String, RoutingCCHGraph> cchGraphs = Collections.emptyMap();
     private CCHDataAccessStore cchStore;
 
@@ -70,6 +71,17 @@ public class CCHGraphHopper extends GraphHopper {
 
     public Map<String, RoutingCCHGraph> getCCHGraphs() {
         return cchGraphs;
+    }
+
+    public CCHGraphHopper setCCHNodeOrderProvider(CCHNodeOrderProvider cchNodeOrderProvider) {
+        if (!cchGraphs.isEmpty())
+            throw new IllegalArgumentException("Cannot set CCH node order provider after CCH was prepared");
+        this.cchNodeOrderProvider = Objects.requireNonNull(cchNodeOrderProvider, "cchNodeOrderProvider");
+        return this;
+    }
+
+    public CCHNodeOrderProvider getCCHNodeOrderProvider() {
+        return cchNodeOrderProvider;
     }
 
     @Override
@@ -148,7 +160,12 @@ public class CCHGraphHopper extends GraphHopper {
 
     private CCHTopology prepareTopology() {
         CCHInputGraph supportGraph = BaseGraphCCHSupportBuilder.fromGraph(getBaseGraph());
-        CCHNodeOrder order = new DeterministicCCHNodeOrderBuilder().build(supportGraph);
+        CCHNodeOrder order = cchNodeOrderProvider.build(supportGraph);
+        if (order == null)
+            throw new IllegalArgumentException("CCH node order provider returned null");
+        if (order.getNodes() != supportGraph.getNodes())
+            throw new IllegalArgumentException("CCH node order provider returned " + order.getNodes()
+                    + " nodes for support graph with " + supportGraph.getNodes() + " nodes");
         return new CCHTopologyBuilder().build(supportGraph, order);
     }
 
