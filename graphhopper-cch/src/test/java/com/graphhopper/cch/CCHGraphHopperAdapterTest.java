@@ -126,18 +126,22 @@ class CCHGraphHopperAdapterTest {
     }
 
     @Test
-    void cchRejectsVirtualEndpointsButDisableFallsBackToFlexible() {
+    void cchRoutesVirtualEndpointsAndDisableFallsBackToFlexible() {
         TestCCHGraphHopper hopper = preparedHopper();
         hopper.snapSourceToVirtualEdgeNode();
 
-        GHRequest virtualEndpoint = request(new GHPoint(0.5, 0.005), point(2));
-        GHResponse cchResponse = hopper.route(virtualEndpoint);
-        assertTrue(cchResponse.hasErrors());
-        assertTrue(cchResponse.getErrors().get(0).getMessage().contains("virtual QueryGraph nodes"), cchResponse.getErrors().toString());
+        GHResponse cchResponse = hopper.route(request(new GHPoint(0.5, 0.005), point(2)));
+        assertFalse(cchResponse.hasErrors(), cchResponse.getErrors().toString());
+        assertTrue(cchResponse.getDebugInfo().contains("cch-routing"), cchResponse.getDebugInfo());
 
-        GHResponse flexibleResponse = hopper.route(virtualEndpoint.putHint(CUSTOMIZABLE_CH_DISABLE, true));
+        GHResponse flexibleResponse = hopper.route(request(new GHPoint(0.5, 0.005), point(2))
+                .putHint(CUSTOMIZABLE_CH_DISABLE, true));
         assertFalse(flexibleResponse.hasErrors(), flexibleResponse.getErrors().toString());
         assertFalse(flexibleResponse.getDebugInfo().contains("cch-routing"), flexibleResponse.getDebugInfo());
+        assertEquals(flexibleResponse.getBest().getRouteWeight(), cchResponse.getBest().getRouteWeight(), 1.e-9);
+        assertEquals(flexibleResponse.getBest().getTime(), cchResponse.getBest().getTime());
+        assertEquals(flexibleResponse.getBest().getDistance(), cchResponse.getBest().getDistance(), 1.e-9);
+        assertEquals(flexibleResponse.getBest().getPoints(), cchResponse.getBest().getPoints());
     }
 
     private static String profilesCCHString(CCHGraphHopperConfig config) {

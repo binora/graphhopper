@@ -9,14 +9,20 @@ import com.graphhopper.routing.FlexiblePathCalculator;
 import com.graphhopper.routing.Path;
 import com.graphhopper.routing.RoutingAlgorithmFactorySimple;
 import com.graphhopper.routing.querygraph.QueryGraph;
+import com.graphhopper.routing.querygraph.VirtualEdgeIteratorState;
 import com.graphhopper.routing.util.TraversalMode;
 import com.graphhopper.routing.weighting.Weighting;
 import com.graphhopper.storage.BaseGraph;
+import com.graphhopper.storage.index.Snap;
+import com.graphhopper.util.DistanceCalcEarth;
 import com.graphhopper.util.EdgeIteratorState;
+import com.graphhopper.util.GHUtility;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.graphhopper.util.Parameters.Algorithms.DIJKSTRA_BI;
 import static org.junit.jupiter.api.Assertions.*;
@@ -124,7 +130,7 @@ class CCHPathCalculatorTest {
     }
 
     @Test
-    void rejectsVirtualQueryGraphEndpointIds() {
+    void rejectsEndpointsOutsideQueryGraph() {
         Fixture fixture = fixture(2, CCHNodeOrder.identity(2));
         fixture.addEdge(0, 1, 1);
         fixture.prepare();
@@ -132,7 +138,95 @@ class CCHPathCalculatorTest {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> fixture.calculator.calcPaths(2, 0, new EdgeRestrictions()));
 
-        assertTrue(error.getMessage().contains("virtual QueryGraph nodes"));
+        assertTrue(error.getMessage().contains("outside query graph nodes"));
+    }
+
+    @Test
+    void virtualSourceToTowerTargetMatchesFlexibleDijkstra() {
+        Fixture fixture = fixture(3, CCHNodeOrder.identity(3));
+        EdgeIteratorState sourceEdge = fixture.addEdge(0, 1, 1);
+        fixture.addEdge(1, 2, 2);
+        fixture.prepare();
+        Snap sourceSnap = snap(0.25, 0.0025, sourceEdge);
+        QueryGraph queryGraph = QueryGraph.create(fixture.baseGraph, sourceSnap);
+        fixture.useQueryGraph(queryGraph);
+
+        assertMatchesFlexible(fixture, sourceSnap.getClosestNode(), 2);
+        assertTrue(fixture.calculator.calcPaths(sourceSnap.getClosestNode(), 2, new EdgeRestrictions()).get(0).getEdges().get(0) >= fixture.baseGraph.getEdges());
+    }
+
+    @Test
+    void towerSourceToVirtualTargetMatchesFlexibleDijkstra() {
+        Fixture fixture = fixture(3, CCHNodeOrder.identity(3));
+        fixture.addEdge(0, 1, 1);
+        EdgeIteratorState targetEdge = fixture.addEdge(1, 2, 2);
+        fixture.prepare();
+        Snap targetSnap = snap(1.75, 0.0175, targetEdge);
+        QueryGraph queryGraph = QueryGraph.create(fixture.baseGraph, targetSnap);
+        fixture.useQueryGraph(queryGraph);
+
+        assertMatchesFlexible(fixture, 0, targetSnap.getClosestNode());
+    }
+
+    @Test
+    void virtualEndpointsOnDifferentEdgesMatchFlexibleDijkstra() {
+        Fixture fixture = fixture(3, CCHNodeOrder.identity(3));
+        EdgeIteratorState sourceEdge = fixture.addEdge(0, 1, 1);
+        EdgeIteratorState targetEdge = fixture.addEdge(1, 2, 2);
+        fixture.prepare();
+        Snap sourceSnap = snap(0.25, 0.0025, sourceEdge);
+        Snap targetSnap = snap(1.75, 0.0175, targetEdge);
+        QueryGraph queryGraph = QueryGraph.create(fixture.baseGraph, sourceSnap, targetSnap);
+        fixture.useQueryGraph(queryGraph);
+
+        assertMatchesFlexible(fixture, sourceSnap.getClosestNode(), targetSnap.getClosestNode());
+    }
+
+    @Test
+    void virtualEndpointsOnSameSplitEdgeUseDirectVirtualSegment() {
+        Fixture fixture = fixture(2, CCHNodeOrder.identity(2));
+        EdgeIteratorState edge = fixture.addEdge(0, 1, 1);
+        fixture.prepare();
+        Snap sourceSnap = snap(0.25, 0.0025, edge);
+        Snap targetSnap = snap(0.75, 0.0075, edge);
+        QueryGraph queryGraph = QueryGraph.create(fixture.baseGraph, sourceSnap, targetSnap);
+        fixture.useQueryGraph(queryGraph);
+
+        Path cchPath = fixture.calculator.calcPaths(sourceSnap.getClosestNode(), targetSnap.getClosestNode(), new EdgeRestrictions()).get(0);
+        assertMatchesFlexible(fixture, sourceSnap.getClosestNode(), targetSnap.getClosestNode());
+        assertTrue(cchPath.isFound());
+        assertEquals(1, cchPath.getEdgeCount());
+        assertTrue(cchPath.getEdges().get(0) >= fixture.baseGraph.getEdges());
+    }
+
+    @Test
+    void directedVirtualEndpointAccessMatchesFlexibleDijkstra() {
+        DirectedWeighting weighting = new DirectedWeighting();
+        Fixture fixture = fixture(2, CCHNodeOrder.identity(2), weighting);
+        EdgeIteratorState edge = fixture.addEdge(0, 1, 1);
+        weighting.set(edge.getEdge(), false, true).set(edge.getEdge(), true, false);
+        fixture.prepare();
+        Snap snap = snap(0.25, 0.0025, edge);
+        QueryGraph queryGraph = QueryGraph.create(fixture.baseGraph, snap);
+        fixture.useQueryGraph(queryGraph);
+
+        assertTrue(fixture.calculator.calcPaths(snap.getClosestNode(), 1, new EdgeRestrictions()).get(0).isFound());
+
+        weighting.set(edge.getEdge(), false, false).set(edge.getEdge(), true, true);
+        fixture.prepare();
+        snap = snap(0.25, 0.0025, edge);
+        queryGraph = QueryGraph.create(fixture.baseGraph, snap);
+        fixture.useQueryGraph(queryGraph);
+
+        assertTrue(fixture.calculator.calcPaths(1, snap.getClosestNode(), new EdgeRestrictions()).get(0).isFound());
+
+        weighting.set(edge.getEdge(), false, false).set(edge.getEdge(), true, false);
+        fixture.prepare();
+        snap = snap(0.25, 0.0025, edge);
+        queryGraph = QueryGraph.create(fixture.baseGraph, snap);
+        fixture.useQueryGraph(queryGraph);
+
+        assertFalse(fixture.calculator.calcPaths(snap.getClosestNode(), 1, new EdgeRestrictions()).get(0).isFound());
     }
 
     @Test
@@ -180,8 +274,12 @@ class CCHPathCalculatorTest {
     }
 
     private static Path flexiblePath(Fixture fixture, int source, int target) {
+        return flexiblePath(fixture, QueryGraph.create(fixture.baseGraph, Collections.emptyList()), source, target);
+    }
+
+    private static Path flexiblePath(Fixture fixture, QueryGraph queryGraph, int source, int target) {
         FlexiblePathCalculator calculator = new FlexiblePathCalculator(
-                QueryGraph.create(fixture.baseGraph, Collections.emptyList()),
+                queryGraph,
                 new RoutingAlgorithmFactorySimple(),
                 fixture.weighting,
                 new AlgorithmOptions()
@@ -190,8 +288,19 @@ class CCHPathCalculatorTest {
         return calculator.calcPaths(source, target, new EdgeRestrictions()).get(0);
     }
 
+    private static void assertMatchesFlexible(Fixture fixture, int source, int target) {
+        Path cchPath = fixture.calculator.calcPaths(source, target, new EdgeRestrictions()).get(0);
+        Path flexiblePath = flexiblePath(fixture, fixture.queryGraph, source, target);
+        assertStablePathFieldsEqual(flexiblePath, cchPath);
+    }
+
     private static void assertStablePathFieldsEqual(Path expected, Path actual) {
         assertEquals(expected.isFound(), actual.isFound());
+        if (!expected.isFound()) {
+            assertFalse(actual.isFound());
+            assertEquals(expected.getEdgeCount(), actual.getEdgeCount());
+            return;
+        }
         assertEquals(expected.getFromNode(), actual.getFromNode());
         assertEquals(expected.getEndNode(), actual.getEndNode());
         assertEquals(expected.getEdges(), actual.getEdges());
@@ -203,12 +312,25 @@ class CCHPathCalculatorTest {
     }
 
     private static Fixture fixture(int nodes, CCHNodeOrder order) {
-        return new Fixture(nodes, order);
+        return fixture(nodes, order, new DistanceWeighting());
+    }
+
+    private static Fixture fixture(int nodes, CCHNodeOrder order, Weighting weighting) {
+        return new Fixture(nodes, order, weighting);
+    }
+
+    private static Snap snap(double lat, double lon, EdgeIteratorState edge) {
+        Snap snap = new Snap(lat, lon);
+        snap.setClosestEdge(edge);
+        snap.setWayIndex(0);
+        snap.setSnappedPosition(Snap.Position.EDGE);
+        snap.calcSnappedPoint(new DistanceCalcEarth());
+        return snap;
     }
 
     private static final class Fixture {
         private final BaseGraph baseGraph;
-        private final DistanceWeighting weighting = new DistanceWeighting();
+        private final Weighting weighting;
         private final CCHNodeOrder order;
         private QueryGraph queryGraph;
         private CCHInputGraph inputGraph;
@@ -217,8 +339,9 @@ class CCHPathCalculatorTest {
         private RoutingCCHGraph routingGraph;
         private CCHPathCalculator calculator;
 
-        private Fixture(int nodes, CCHNodeOrder order) {
+        private Fixture(int nodes, CCHNodeOrder order, Weighting weighting) {
             this.order = order;
+            this.weighting = weighting;
             baseGraph = new BaseGraph.Builder(1).create();
             for (int node = 0; node < nodes; node++) {
                 baseGraph.getNodeAccess().setNode(node, node, node * 0.01);
@@ -226,8 +349,8 @@ class CCHPathCalculatorTest {
             prepare();
         }
 
-        private void addEdge(int from, int to, double distance) {
-            baseGraph.edge(from, to).setDistance(distance);
+        private EdgeIteratorState addEdge(int from, int to, double distance) {
+            return baseGraph.edge(from, to).setDistance(distance);
         }
 
         private void prepare() {
@@ -235,6 +358,11 @@ class CCHPathCalculatorTest {
             metric = new CCHMetricCustomizer().customize(topology, inputGraph);
             routingGraph = new DefaultRoutingCCHGraph(baseGraph, topology, metric, weighting);
             queryGraph = QueryGraph.create(baseGraph, Collections.emptyList());
+            calculator = new CCHPathCalculator(routingGraph, queryGraph);
+        }
+
+        private void useQueryGraph(QueryGraph queryGraph) {
+            this.queryGraph = queryGraph;
             calculator = new CCHPathCalculator(routingGraph, queryGraph);
         }
 
@@ -285,6 +413,61 @@ class CCHPathCalculatorTest {
         @Override
         public boolean hasTurnCosts() {
             return true;
+        }
+    }
+
+    private static final class DirectedWeighting extends DistanceWeighting {
+        private final Map<Key, Boolean> access = new HashMap<>();
+
+        private DirectedWeighting set(int edge, boolean reverse, boolean accessible) {
+            access.put(new Key(edge, reverse), accessible);
+            return this;
+        }
+
+        @Override
+        public double calcEdgeWeight(EdgeIteratorState edgeState, boolean reverse) {
+            int edgeKey = originalEdgeKey(edgeState, reverse);
+            boolean traversalReverse = (edgeKey & 1) == 1;
+            boolean accessible = access.getOrDefault(new Key(edgeKey / 2, traversalReverse), true);
+            return accessible ? edgeState.getDistance() : Double.POSITIVE_INFINITY;
+        }
+
+        @Override
+        public long calcEdgeMillis(EdgeIteratorState edgeState, boolean reverse) {
+            double weight = calcEdgeWeight(edgeState, reverse);
+            return Double.isFinite(weight) ? Math.round(edgeState.getDistance() * 10) : Long.MAX_VALUE;
+        }
+
+        private static int originalEdgeKey(EdgeIteratorState edgeState, boolean reverse) {
+            int edgeKey = edgeState instanceof VirtualEdgeIteratorState
+                    ? ((VirtualEdgeIteratorState) edgeState).getOriginalEdgeKey()
+                    : edgeState.getEdgeKey();
+            return reverse ? GHUtility.reverseEdgeKey(edgeKey) : edgeKey;
+        }
+    }
+
+    private static final class Key {
+        private final int edge;
+        private final boolean reverse;
+
+        private Key(int edge, boolean reverse) {
+            this.edge = edge;
+            this.reverse = reverse;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+            if (!(o instanceof Key))
+                return false;
+            Key key = (Key) o;
+            return edge == key.edge && reverse == key.reverse;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * edge + Boolean.hashCode(reverse);
         }
     }
 }

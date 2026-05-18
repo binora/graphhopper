@@ -88,29 +88,30 @@ public final class CCHBoundaryOverlayBuilder {
 
     private static CCHBoundaryArc buildArc(QueryGraph queryGraph, Weighting weighting,
                                            EdgeIteratorState endpointEdge, boolean reverse) {
-        double weight = weighting.calcEdgeWeight(endpointEdge, reverse);
+        EdgeIteratorState edge = endpointEdge.detach(false);
+        double weight = weighting.calcEdgeWeight(edge, reverse);
         if (Double.isNaN(weight))
-            throw invalidWeight(endpointEdge.getEdge(), reverse, "NaN");
+            throw invalidWeight(edge.getEdge(), reverse, "NaN");
         if (weight == Double.POSITIVE_INFINITY)
             return null;
         if (!Double.isFinite(weight))
-            throw invalidWeight(endpointEdge.getEdge(), reverse, String.valueOf(weight));
+            throw invalidWeight(edge.getEdge(), reverse, String.valueOf(weight));
         if (weight < 0)
-            throw invalidWeight(endpointEdge.getEdge(), reverse, String.valueOf(weight));
+            throw invalidWeight(edge.getEdge(), reverse, String.valueOf(weight));
 
-        long millis = weighting.calcEdgeMillis(endpointEdge, reverse);
+        long millis = weighting.calcEdgeMillis(edge, reverse);
         if (millis < 0)
-            throw new IllegalArgumentException("Negative millis for boundary edge " + endpointEdge.getEdge()
+            throw new IllegalArgumentException("Negative millis for boundary edge " + edge.getEdge()
                     + ", reverse=" + reverse + ": " + millis);
 
-        double distance = endpointEdge.getDistance();
+        double distance = edge.getDistance();
         if (!Double.isFinite(distance) || distance < 0)
-            throw new IllegalArgumentException("Invalid distance for boundary edge " + endpointEdge.getEdge()
+            throw new IllegalArgumentException("Invalid distance for boundary edge " + edge.getEdge()
                     + ": " + distance);
 
-        int tail = reverse ? endpointEdge.getAdjNode() : endpointEdge.getBaseNode();
-        int head = reverse ? endpointEdge.getBaseNode() : endpointEdge.getAdjNode();
-        EdgeIteratorState traversalEdge = queryGraph.getEdgeIteratorState(endpointEdge.getEdge(), head);
+        int tail = reverse ? edge.getAdjNode() : edge.getBaseNode();
+        int head = reverse ? edge.getBaseNode() : edge.getAdjNode();
+        EdgeIteratorState traversalEdge = queryGraph.getEdgeIteratorState(edge.getEdge(), head);
         int originalEdgeKey = traversalEdge instanceof VirtualEdgeIteratorState
                 ? ((VirtualEdgeIteratorState) traversalEdge).getOriginalEdgeKey()
                 : traversalEdge.getEdgeKey();
