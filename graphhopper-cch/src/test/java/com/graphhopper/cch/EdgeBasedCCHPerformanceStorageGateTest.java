@@ -15,7 +15,6 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 class EdgeBasedCCHPerformanceStorageGateTest {
-    private static final long TEN_SECONDS_NANOS = 10_000_000_000L;
     private static final int H_VERSION = 4;
 
     @TempDir
@@ -26,31 +25,33 @@ class EdgeBasedCCHPerformanceStorageGateTest {
         BaseGraph graph = gridGraph(9, 9);
         Weighting weighting = new DistanceTurnCostWeighting();
 
-        long started = System.nanoTime();
         EdgeStateCCHInputGraph edgeGraph = EdgeStateCCHInputBuilder.fromGraph(graph);
         EdgeStateCCHTopology edgeTopology = new EdgeStateCCHTopologyBuilder()
                 .buildFromBaseNodeOrder(edgeGraph, baseCoordinateOrder(graph));
+        CCHTopologyStatistics stats = CCHOrderDiagnostics.analyze(edgeTopology);
         CCHMetric metric = new EdgeBasedCCHMetricCustomizer().customize(edgeTopology,
                 new EdgeBasedCCHMetricSource(graph, weighting, edgeGraph, edgeTopology.getTopology()));
         EdgeBasedCCHQuery query = new EdgeBasedCCHQuery(graph, weighting, edgeTopology, metric);
         EdgeBasedCCHPathUnpacker unpacker = new EdgeBasedCCHPathUnpacker(edgeTopology, metric);
 
         int nodes = graph.getNodes();
+        int maxVisitedNodes = 0;
         for (int source = 0; source < nodes; source += 10) {
             int target = nodes - 1 - source;
             EdgeBasedCCHQueryResult result = query.calc(source, target);
+            maxVisitedNodes = Math.max(maxVisitedNodes, result.getVisitedNodes());
             CCHUnpackedPath path = unpacker.unpack(result);
             assertTrue(result.isFound(), "expected grid route " + source + " -> " + target);
             assertTrue(path.isFound(), "expected unpacked grid route " + source + " -> " + target);
             assertEquals(result.getWeight(), path.getWeight(), 1.e-9);
         }
-        long elapsed = System.nanoTime() - started;
 
         assertEquals(graph.getEdges() * 2, edgeGraph.getStates());
         assertEquals(edgeGraph.getStates(), edgeTopology.getStates());
         assertEquals(edgeTopology.getTopology().getArcs(), metric.getArcs());
-        assertTrue(edgeTopology.getTopology().getArcs() < edgeGraph.getStates() * edgeGraph.getStates());
-        assertTrue(elapsed < TEN_SECONDS_NANOS, "edge CCH smoke gate took " + elapsed + " ns");
+        assertTrue(stats.getArcs() < edgeGraph.getStates() * 250, diagnostics(stats, maxVisitedNodes));
+        assertTrue(stats.getTriangles() < edgeGraph.getStates() * 50_000L, diagnostics(stats, maxVisitedNodes));
+        assertTrue(maxVisitedNodes < edgeGraph.getStates() * 128, diagnostics(stats, maxVisitedNodes));
     }
 
     @Test
@@ -129,6 +130,12 @@ class EdgeBasedCCHPerformanceStorageGateTest {
     private static CCHNodeOrder baseCoordinateOrder(BaseGraph graph) {
         return new CoordinateNestedDissectionCCHNodeOrderProvider(graph, 4)
                 .build(BaseGraphCCHSupportBuilder.fromGraph(graph));
+    }
+
+    private static String diagnostics(CCHTopologyStatistics stats, int maxVisitedNodes) {
+        return "edge-state performance smoke"
+                + "\nstats=" + stats
+                + "\nmaxVisitedNodes=" + maxVisitedNodes;
     }
 
     private static final class DistanceTurnCostWeighting implements Weighting {
