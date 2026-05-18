@@ -21,6 +21,10 @@ can disable speed mode using `ch.disable=true`. In this case either hybrid mode 
 chosen profile) or flexible mode will be used. To use flexible mode in the presence of an LM preparation you need to 
 also set `lm.disable=true`.
 
+The optional `graphhopper-cch` module adds Customizable Contraction Hierarchies for configured `profiles_cch` profiles.
+These routes are selected before CH/LM/flexible routing and can be skipped per request using
+`customizable_ch.disable=true`. See [Customizable CH](./cch.md) for details and v1 limitations.
+
 To calculate a route you have to pick one vehicle and optionally an algorithm like
 `bidirectional_astar`, see the test speedModeVersusHybridMode.
 
