@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osm version="0.6" generator="graphhopper-cch-test">
+    <node id="1" lat="0.0000" lon="0.0000"/>
+    <node id="2" lat="0.0000" lon="0.0100"/>
+    <node id="3" lat="0.0000" lon="0.0200"/>
+    <node id="4" lat="0.0000" lon="0.0300"/>
+    <node id="5" lat="0.0100" lon="0.0150"/>
+
+    <node id="6" lat="0.0200" lon="0.0000"/>
+    <node id="7" lat="0.0200" lon="0.0100"/>
+
+    <node id="8" lat="0.0300" lon="0.0000"/>
+    <node id="9" lat="0.0300" lon="0.0100"/>
+
+    <node id="10" lat="0.1000" lon="0.1000"/>
+    <node id="11" lat="0.1000" lon="0.1100"/>
+
+    <way id="100">
+        <nd ref="1"/>
+        <nd ref="2"/>
+        <tag k="name" v="A-B"/>
+        <tag k="highway" v="primary"/>
+        <tag k="maxspeed" v="80"/>
+    </way>
+
+    <way id="101">
+        <nd ref="2"/>
+        <nd ref="3"/>
+        <tag k="name" v="B-C"/>
+        <tag k="highway" v="primary"/>
+        <tag k="maxspeed" v="80"/>
+    </way>
+
+    <way id="102">
+        <nd ref="3"/>
+        <nd ref="4"/>
+        <tag k="name" v="C-D"/>
+        <tag k="highway" v="primary"/>
+        <tag k="maxspeed" v="80"/>
+    </way>
+
+    <way id="103">
+        <nd ref="2"/>
+        <nd ref="5"/>
+        <nd ref="3"/>
+        <tag k="name" v="B-E-C detour"/>
+        <tag k="highway" v="secondary"/>
+        <tag k="maxspeed" v="20"/>
+    </way>
+
+    <way id="104">
+        <nd ref="6"/>
+        <nd ref="7"/>
+        <tag k="name" v="F-G forward"/>
+        <tag k="highway" v="primary"/>
+        <tag k="maxspeed" v="80"/>
+        <tag k="oneway" v="yes"/>
+    </way>
+
+    <way id="105">
+        <nd ref="8"/>
+        <nd ref="9"/>
+        <tag k="name" v="H-I reverse"/>
+        <tag k="highway" v="primary"/>
+        <tag k="maxspeed" v="80"/>
+        <tag k="oneway" v="-1"/>
+    </way>
+
+    <way id="106">
+        <nd ref="10"/>
+        <nd ref="11"/>
+        <tag k="name" v="J-K disconnected"/>
+        <tag k="highway" v="primary"/>
+        <tag k="maxspeed" v="80"/>
+    </way>
+</osm>

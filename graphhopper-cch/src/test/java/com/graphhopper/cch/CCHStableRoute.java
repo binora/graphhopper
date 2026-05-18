@@ -37,6 +37,14 @@ final class CCHStableRoute {
     }
 
     static CCHStableRoute from(BaseGraph graph, int sourceNode, boolean instructionsEnabled, GHResponse response) {
+        return from(graph, Integer.valueOf(sourceNode), instructionsEnabled, response);
+    }
+
+    static CCHStableRoute from(BaseGraph graph, boolean instructionsEnabled, GHResponse response) {
+        return from(graph, null, instructionsEnabled, response);
+    }
+
+    private static CCHStableRoute from(BaseGraph graph, Integer sourceNode, boolean instructionsEnabled, GHResponse response) {
         LinkedHashMap<String, String> fields = new LinkedHashMap<>();
         fields.put("hasErrors", Boolean.toString(response.hasErrors()));
         fields.put("errors", errors(response));
@@ -96,10 +104,11 @@ final class CCHStableRoute {
         return values;
     }
 
-    private static List<Integer> nodes(BaseGraph graph, int sourceNode, List<Integer> edgeKeys) {
+    private static List<Integer> nodes(BaseGraph graph, Integer sourceNode, List<Integer> edgeKeys) {
         List<Integer> nodes = new ArrayList<>();
         if (edgeKeys.isEmpty()) {
-            nodes.add(sourceNode);
+            if (sourceNode != null)
+                nodes.add(sourceNode);
             return nodes;
         }
         for (int i = 0; i < edgeKeys.size(); i++) {
