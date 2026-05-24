@@ -69,7 +69,7 @@ After CCH is disabled, normal GraphHopper selection applies:
 
 The existing `ch.disable` and `lm.disable` parameters do not disable CCH directly.
 
-## Admin Metric Recustomization
+## Admin Metric Recustomization And Traffic Snapshots
 
 CCH metric customization normally runs during `importOrLoad()` and reloads from persisted metric generations. For
 configured `profiles_cch` profiles the server also exposes a synchronous admin recustomization endpoint:
@@ -90,6 +90,51 @@ write access; read-only reloads can route with persisted CCH but cannot replace 
 YAML, does not accept per-request `custom_model` payloads, and does not implement partial traffic updates. It is an
 operational hook for rebuilding the current configured profile metric without rebuilding the graph-level CCH topology.
 
+The same recustomization path can consume an active traffic snapshot. Traffic snapshots are immutable request-time
+overlays keyed by base edge id and direction. They are not written into `BaseGraph`; they wrap the profile `Weighting`.
+Each override can set:
+
+* `speed_kmh` to replace traversal time for that directed edge;
+* `delay_millis` to add delay to the directed edge;
+* `blocked=true` to make that directed edge inaccessible.
+
+Traffic endpoints are available when the server is running `CCHGraphHopper`:
+
+```text
+GET  /cch/traffic/status
+POST /cch/traffic/snapshots
+POST /cch/traffic/snapshots/{id}/activate
+POST /cch/traffic/snapshots/{id}/activate-and-customize/{profile}
+```
+
+Example snapshot upload:
+
+```json
+{
+  "id": "traffic-2026-05-24T1200",
+  "created_millis": 1779614400000,
+  "entries": [
+    { "edge": 123, "reverse": false, "speed_kmh": 12.5 },
+    { "edge": 456, "reverse": true, "delay_millis": 90000 },
+    { "edge": 789, "reverse": false, "blocked": true }
+  ]
+}
+```
+
+Activating a snapshot changes newly created flexible weightings immediately. Existing CCH routing keeps using the old
+immutable metric until a recustomization finishes. The usual live-traffic flow is:
+
+```text
+POST /cch/traffic/snapshots
+POST /cch/traffic/snapshots/{id}/activate-and-customize/{profile}
+```
+
+The combined endpoint activates the stored snapshot, rebuilds only the requested CCH profile metric against the existing
+topology, persists the new metric generation, and swaps runtime CCH routing after the new metric is ready. The active
+snapshot metadata is persisted with the metric so reloaded virtual endpoint boundary weights use the same traffic
+overlay. This is still full metric customization, not partial CCH customization; update frequency should be chosen from
+measured customization time for the target map and order.
+
 ## Support Matrix
 
 | Capability | `CCHGraphHopper` adapter | Module core |
@@ -99,6 +144,7 @@ operational hook for rebuilding the current configured profile metric without re
 | Coordinate requests using `QueryGraph` virtual endpoints | Supported | Supported |
 | Persisted topology and per-profile metric reload | Supported for node-based CCH | Supported for node-based and edge-state storage objects |
 | Admin metric recustomization for configured profiles | Supported via `/cch/customize/{profile}` and Java API | Supported for node-based metrics |
+| Traffic snapshot overlays | Supported via `/cch/traffic/*` and full metric recustomization | Supported through `CCHTrafficWeighting` and metric sources |
 | Turn costs and turn restrictions | Not exposed through `profiles_cch`; turn-cost profiles are rejected clearly | Supported by the edge-state v2 core |
 | Edge-based CCH route query/unpacking | Not exposed through `CCHGraphHopper` yet | Supported by `EdgeStateCCHInputGraph`, `EdgeStateCCHTopology`, `EdgeBasedCCHMetricSource`, `EdgeBasedCCHQuery`, and `EdgeBasedCCHPathUnpacker` |
 | Native RoutingKit dependency | Not used | Not used |
@@ -158,6 +204,7 @@ The following features are intentionally out of scope for the current public ada
 
 * headings, pass-through routing, curbsides, round trips, alternative routes, and per-request custom models;
 * `profiles_cch` turn-cost profile routing;
+* per-request traffic payloads;
 * perfect customization and partial metric updates;
 * native RoutingKit as a runtime dependency.
 

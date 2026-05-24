@@ -233,6 +233,57 @@ class CCHGraphHopperAdapterTest {
         assertEquals(3, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
     }
 
+    @Test
+    void trafficSnapshotAffectsFlexibleImmediatelyAndCCHAfterRecustomization() {
+        TestCCHGraphHopper hopper = preparedHopper();
+        assertEquals(3, hopper.route(request(0, 2)).getBest().getRouteWeight(), 1.e-9);
+
+        CCHTrafficSnapshot snapshot = CCHTrafficSnapshot.builder("jam-1")
+                .setCreatedMillis(123)
+                .delay(1, false, 1000)
+                .delay(1, true, 1000)
+                .build();
+        CCHTrafficSnapshotInfo stored = hopper.putCCHTrafficSnapshot(snapshot);
+        assertEquals("jam-1", stored.getId());
+        assertFalse(stored.isActive());
+        hopper.activateCCHTrafficSnapshot("jam-1");
+        assertEquals("jam-1", hopper.getCCHTrafficStatus().getActiveSnapshot().getId());
+
+        GHResponse staleCCH = hopper.route(request(0, 2));
+        assertFalse(staleCCH.hasErrors(), staleCCH.getErrors().toString());
+        assertTrue(staleCCH.getDebugInfo().contains("cch-routing"), staleCCH.getDebugInfo());
+        assertEquals(3, staleCCH.getBest().getRouteWeight(), 1.e-9);
+
+        GHResponse trafficFlexible = hopper.route(request(0, 2).putHint(CUSTOMIZABLE_CH_DISABLE, true));
+        assertFalse(trafficFlexible.hasErrors(), trafficFlexible.getErrors().toString());
+        assertEquals(10, trafficFlexible.getBest().getRouteWeight(), 1.e-9);
+
+        CCHTrafficCustomizationResult result = hopper.activateCCHTrafficSnapshotAndRecustomize("profile", "jam-1");
+        assertEquals("jam-1", result.getActiveSnapshot().getId());
+        assertEquals("profile", result.getCustomization().getProfile());
+
+        GHResponse trafficCCH = hopper.route(request(0, 2));
+        assertFalse(trafficCCH.hasErrors(), trafficCCH.getErrors().toString());
+        assertTrue(trafficCCH.getDebugInfo().contains("cch-routing"), trafficCCH.getDebugInfo());
+        assertEquals(trafficFlexible.getBest().getRouteWeight(), trafficCCH.getBest().getRouteWeight(), 1.e-9);
+        assertEquals(trafficFlexible.getBest().getTime(), trafficCCH.getBest().getTime());
+        assertEquals(trafficFlexible.getBest().getDistance(), trafficCCH.getBest().getDistance(), 1.e-9);
+        assertEquals(trafficFlexible.getBest().getPoints(), trafficCCH.getBest().getPoints());
+    }
+
+    @Test
+    void trafficSnapshotsValidateEdgesAndIds() {
+        TestCCHGraphHopper hopper = preparedHopper();
+
+        IllegalArgumentException invalidId = assertThrows(IllegalArgumentException.class,
+                () -> CCHTrafficSnapshot.builder("bad id").delay(0, false, 1).build());
+        assertTrue(invalidId.getMessage().contains("letters"), invalidId.getMessage());
+
+        IllegalArgumentException missingEdge = assertThrows(IllegalArgumentException.class,
+                () -> hopper.putCCHTrafficSnapshot(CCHTrafficSnapshot.builder("bad-edge").block(99, false).build()));
+        assertTrue(missingEdge.getMessage().contains("edge 99"), missingEdge.getMessage());
+    }
+
     private static String profilesCCHString(CCHGraphHopperConfig config) {
         StringBuilder builder = new StringBuilder("profiles_cch:\n");
         for (CCHProfile profile : config.getCCHProfiles()) {
@@ -322,7 +373,7 @@ class CCHGraphHopperAdapterTest {
 
         @Override
         protected WeightingFactory createWeightingFactory() {
-            return (profile, requestHints, disableTurnCosts) -> weighting;
+            return (profile, requestHints, disableTurnCosts) -> applyCCHTraffic(weighting);
         }
     }
 

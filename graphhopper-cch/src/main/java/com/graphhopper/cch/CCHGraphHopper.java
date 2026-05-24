@@ -26,6 +26,8 @@ public class CCHGraphHopper extends GraphHopper {
     private final List<CCHProfile> cchProfiles = new ArrayList<>();
     private CCHNodeOrderProvider cchNodeOrderProvider = new DeterministicCCHNodeOrderBuilder();
     private volatile Map<String, RoutingCCHGraph> cchGraphs = Collections.emptyMap();
+    private volatile Map<String, CCHTrafficSnapshot> cchTrafficSnapshots = Collections.emptyMap();
+    private volatile CCHTrafficSnapshot activeTrafficSnapshot = CCHTrafficSnapshot.empty();
     private CCHDataAccessStore cchStore;
     private final AtomicBoolean cchCustomizationInProgress = new AtomicBoolean();
 
@@ -106,6 +108,65 @@ public class CCHGraphHopper extends GraphHopper {
         }
     }
 
+    public CCHTrafficSnapshot getActiveCCHTrafficSnapshot() {
+        return activeTrafficSnapshot;
+    }
+
+    public CCHTrafficStatus getCCHTrafficStatus() {
+        return new CCHTrafficStatus(activeTrafficSnapshot, new ArrayList<>(cchTrafficSnapshots.values()));
+    }
+
+    public CCHTrafficSnapshotInfo putCCHTrafficSnapshot(CCHTrafficSnapshot snapshot) {
+        validateTrafficSnapshot(snapshot);
+        if (CCHTrafficSnapshot.EMPTY_ID.equals(snapshot.getId()))
+            throw new IllegalArgumentException("'" + CCHTrafficSnapshot.EMPTY_ID + "' is reserved for the empty CCH traffic snapshot");
+        Map<String, CCHTrafficSnapshot> updated = new LinkedHashMap<>(cchTrafficSnapshots);
+        if (updated.containsKey(snapshot.getId()))
+            throw new IllegalArgumentException("CCH traffic snapshot already exists: '" + snapshot.getId() + "'");
+        updated.put(snapshot.getId(), snapshot);
+        cchTrafficSnapshots = Collections.unmodifiableMap(updated);
+        return new CCHTrafficSnapshotInfo(snapshot, snapshot.getId().equals(activeTrafficSnapshot.getId()));
+    }
+
+    public CCHTrafficStatus activateCCHTrafficSnapshot(String snapshotId) {
+        Objects.requireNonNull(snapshotId, "snapshotId");
+        if (cchCustomizationInProgress.get())
+            throw new CCHCustomizationBusyException("CCH metric recustomization is already running");
+        if (CCHTrafficSnapshot.EMPTY_ID.equals(snapshotId)) {
+            activeTrafficSnapshot = CCHTrafficSnapshot.empty();
+            return getCCHTrafficStatus();
+        }
+        CCHTrafficSnapshot snapshot = cchTrafficSnapshots.get(snapshotId);
+        if (snapshot == null)
+            throw new IllegalArgumentException("Unknown CCH traffic snapshot: '" + snapshotId + "'");
+        activeTrafficSnapshot = snapshot;
+        return getCCHTrafficStatus();
+    }
+
+    public CCHTrafficCustomizationResult activateCCHTrafficSnapshotAndRecustomize(String profileName, String snapshotId) {
+        Objects.requireNonNull(snapshotId, "snapshotId");
+        if (!cchCustomizationInProgress.compareAndSet(false, true))
+            throw new CCHCustomizationBusyException("CCH metric recustomization is already running");
+        CCHTrafficSnapshot snapshot = CCHTrafficSnapshot.EMPTY_ID.equals(snapshotId)
+                ? CCHTrafficSnapshot.empty()
+                : cchTrafficSnapshots.get(snapshotId);
+        long startNanos = System.nanoTime();
+        CCHTrafficSnapshot previous = activeTrafficSnapshot;
+        boolean success = false;
+        try {
+            if (snapshot == null)
+                throw new IllegalArgumentException("Unknown CCH traffic snapshot: '" + snapshotId + "'");
+            activeTrafficSnapshot = snapshot;
+            CCHCustomizationResult customization = recustomizeCCHProfileInternal(profileName, startNanos);
+            success = true;
+            return new CCHTrafficCustomizationResult(snapshot, customization);
+        } finally {
+            if (!success)
+                activeTrafficSnapshot = previous;
+            cchCustomizationInProgress.set(false);
+        }
+    }
+
     public CCHGraphHopper setCCHNodeOrderProvider(CCHNodeOrderProvider cchNodeOrderProvider) {
         if (!cchGraphs.isEmpty())
             throw new IllegalArgumentException("Cannot set CCH node order provider after CCH was prepared");
@@ -157,6 +218,7 @@ public class CCHGraphHopper extends GraphHopper {
 
     private void loadOrPreparePersistedCCH() {
         cchStore = new CCHDataAccessStore(getBaseGraph().getDirectory(), getBaseGraph().getSegmentSize());
+        loadPersistedTrafficSnapshot();
         for (CCHProfile cchProfile : cchProfiles) {
             String profileName = cchProfile.getProfile();
             int profileHash = getProfileHash(getProfile(profileName));
@@ -178,6 +240,7 @@ public class CCHGraphHopper extends GraphHopper {
             Profile profile = getProfile(profileName);
             int profileHash = getProfileHash(profile);
             Weighting weighting = createWeighting(profile, new PMap());
+            CCHTrafficSnapshot metricTrafficSnapshot = trafficSnapshotFrom(weighting);
             int metricGeneration = getCCHMetricGeneration(profileName);
             CCHMetric metric = metricGeneration > 0
                     ? cchStore.loadMetric(profileName, profileHash, topology, metricGeneration)
@@ -188,6 +251,7 @@ public class CCHGraphHopper extends GraphHopper {
                         new BaseGraphCCHMetricSource(getBaseGraph(), weighting, topology));
                 int newGeneration = metricGeneration > 0 ? metricGeneration + 1 : 1;
                 cchStore.saveMetric(profileName, profileHash, topology, metric, newGeneration);
+                savePersistedTrafficSnapshot(metricTrafficSnapshot);
                 setCCHProfileVersion(profileName, profileHash);
                 setCCHMetricGeneration(profileName, newGeneration);
             }
@@ -263,6 +327,7 @@ public class CCHGraphHopper extends GraphHopper {
             throw new IllegalArgumentException("graphhopper-cch v1 only supports node-based profiles without turn costs: '" + profileName + "'");
         int profileHash = getProfileHash(profile);
         Weighting weighting = createWeighting(profile, new PMap());
+        CCHTrafficSnapshot metricTrafficSnapshot = trafficSnapshotFrom(weighting);
         CCHMetric metric = new CCHMetricCustomizer().customize(topology,
                 new BaseGraphCCHMetricSource(getBaseGraph(), weighting, topology));
         RoutingCCHGraph updated = new DefaultRoutingCCHGraph(getBaseGraph(), current.getCCHStorage(), topology, metric, weighting);
@@ -276,6 +341,7 @@ public class CCHGraphHopper extends GraphHopper {
             if (newGeneration <= 0)
                 throw new IllegalStateException("CCH metric generation overflow for profile '" + profileName + "'");
             cchStore.saveMetric(profileName, profileHash, topology, metric, newGeneration);
+            savePersistedTrafficSnapshot(metricTrafficSnapshot);
             setCCHProfileVersion(profileName, profileHash);
             setCCHMetricGeneration(profileName, newGeneration);
             getProperties().flush();
@@ -298,6 +364,101 @@ public class CCHGraphHopper extends GraphHopper {
                 return true;
         }
         return false;
+    }
+
+    @Override
+    protected WeightingFactory createWeightingFactory() {
+        WeightingFactory delegate = super.createWeightingFactory();
+        return (profile, requestHints, disableTurnCosts) ->
+                applyCCHTraffic(delegate.createWeighting(profile, requestHints, disableTurnCosts));
+    }
+
+    protected final Weighting applyCCHTraffic(Weighting weighting) {
+        return applyCCHTraffic(weighting, activeTrafficSnapshot);
+    }
+
+    protected final Weighting applyCCHTraffic(Weighting weighting, CCHTrafficSnapshot snapshot) {
+        Objects.requireNonNull(weighting, "weighting");
+        CCHTrafficSnapshot effectiveSnapshot = snapshot == null ? CCHTrafficSnapshot.empty() : snapshot;
+        return effectiveSnapshot.isEmpty() ? weighting : new CCHTrafficWeighting(weighting, effectiveSnapshot);
+    }
+
+    private static CCHTrafficSnapshot trafficSnapshotFrom(Weighting weighting) {
+        if (weighting instanceof CCHTrafficWeighting)
+            return ((CCHTrafficWeighting) weighting).getSnapshot();
+        return CCHTrafficSnapshot.empty();
+    }
+
+    private void validateTrafficSnapshot(CCHTrafficSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (getBaseGraph() == null || getBaseGraph().isClosed())
+            return;
+        int edges = getBaseGraph().getEdges();
+        for (CCHTrafficOverride override : snapshot.getEntries()) {
+            if (override.getEdge() >= edges)
+                throw new IllegalArgumentException("CCH traffic override references edge " + override.getEdge()
+                        + ", but the base graph has only " + edges + " edges");
+        }
+    }
+
+    private void loadPersistedTrafficSnapshot() {
+        StorableProperties properties = getProperties();
+        if (properties == null)
+            return;
+        String id = properties.get("graph.cch.traffic.active.id");
+        if (id.isEmpty()) {
+            activeTrafficSnapshot = CCHTrafficSnapshot.empty();
+            return;
+        }
+        long createdMillis = Long.parseLong(properties.get("graph.cch.traffic.active.created_millis"));
+        CCHTrafficSnapshot.Builder builder = CCHTrafficSnapshot.builder(id).setCreatedMillis(createdMillis);
+        String entries = properties.get("graph.cch.traffic.active.entries");
+        if (!entries.isEmpty()) {
+            for (String entry : entries.split(";")) {
+                if (entry.isEmpty())
+                    continue;
+                String[] parts = entry.split(",", -1);
+                if (parts.length != 5)
+                    throw new IllegalArgumentException("Invalid persisted CCH traffic entry: " + entry);
+                int edge = Integer.parseInt(parts[0]);
+                boolean reverse = Boolean.parseBoolean(parts[1]);
+                Double speedKmh = parts[2].isEmpty() ? null : Double.parseDouble(parts[2]);
+                long delayMillis = Long.parseLong(parts[3]);
+                boolean blocked = Boolean.parseBoolean(parts[4]);
+                builder.override(edge, reverse, speedKmh, delayMillis, blocked);
+            }
+        }
+        CCHTrafficSnapshot snapshot = builder.build();
+        validateTrafficSnapshot(snapshot);
+        Map<String, CCHTrafficSnapshot> restored = new LinkedHashMap<>(cchTrafficSnapshots);
+        restored.put(snapshot.getId(), snapshot);
+        cchTrafficSnapshots = Collections.unmodifiableMap(restored);
+        activeTrafficSnapshot = snapshot;
+    }
+
+    private void savePersistedTrafficSnapshot(CCHTrafficSnapshot snapshot) {
+        StorableProperties properties = getProperties();
+        if (properties == null)
+            return;
+        if (snapshot == null || snapshot.isEmpty()) {
+            properties.remove("graph.cch.traffic.active.id");
+            properties.remove("graph.cch.traffic.active.created_millis");
+            properties.remove("graph.cch.traffic.active.entries");
+            return;
+        }
+        StringBuilder entries = new StringBuilder();
+        for (CCHTrafficOverride override : snapshot.getEntries()) {
+            if (entries.length() > 0)
+                entries.append(';');
+            entries.append(override.getEdge()).append(',')
+                    .append(override.isReverse()).append(',')
+                    .append(override.getSpeedKmh() == null ? "" : override.getSpeedKmh()).append(',')
+                    .append(override.getDelayMillis()).append(',')
+                    .append(override.isBlocked());
+        }
+        properties.put("graph.cch.traffic.active.id", snapshot.getId());
+        properties.put("graph.cch.traffic.active.created_millis", snapshot.getCreatedMillis());
+        properties.put("graph.cch.traffic.active.entries", entries.toString());
     }
 
     @Override

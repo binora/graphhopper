@@ -299,8 +299,10 @@ public class GraphHopperBundle implements ConfiguredBundle<GraphHopperBundleConf
         environment.jersey().register(MVTResource.class);
         environment.jersey().register(NearestResource.class);
         environment.jersey().register(RouteResource.class);
-        if (graphHopper instanceof CCHGraphHopper && !((CCHGraphHopper) graphHopper).getCCHProfiles().isEmpty())
+        if (graphHopper instanceof CCHGraphHopper && !((CCHGraphHopper) graphHopper).getCCHProfiles().isEmpty()) {
             environment.jersey().register(CCHCustomizationResource.class);
+            environment.jersey().register(CCHTrafficResource.class);
+        }
         environment.jersey().register(IsochroneResource.class);
         environment.jersey().register(MapMatchingResource.class);
 

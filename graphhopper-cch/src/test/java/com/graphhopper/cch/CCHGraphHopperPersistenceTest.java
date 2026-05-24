@@ -95,6 +95,30 @@ class CCHGraphHopperPersistenceTest {
         reloaded.close();
     }
 
+    @Test
+    void reloadsActiveTrafficSnapshotMetadataWithPersistedMetric() {
+        String location = tempDir.resolve("traffic-cch").toString();
+        CCHGraphHopper fresh = configuredHopper(location, true);
+        fresh.importOrLoad();
+        fresh.putCCHTrafficSnapshot(CCHTrafficSnapshot.builder("jam-1")
+                .setCreatedMillis(123)
+                .delay(0, false, 10)
+                .build());
+        CCHTrafficCustomizationResult result = fresh.activateCCHTrafficSnapshotAndRecustomize(PROFILE, "jam-1");
+        assertTrue(result.getCustomization().isPersisted());
+        assertEquals(2, result.getCustomization().getMetricGeneration());
+        fresh.close();
+
+        CCHGraphHopper reloaded = configuredHopper(location, true);
+        reloaded.setAllowWrites(false);
+        reloaded.importOrLoad();
+        assertEquals("jam-1", reloaded.getActiveCCHTrafficSnapshot().getId());
+        assertEquals(1, reloaded.getActiveCCHTrafficSnapshot().size());
+        assertEquals(1, reloaded.getCCHTrafficStatus().getSnapshots().size());
+        assertEquals(2, reloaded.getCCHCustomizationStatus().get(0).getMetricGeneration());
+        reloaded.close();
+    }
+
     private CCHGraphHopper configuredHopper(String location, boolean withCCH) {
         CCHGraphHopper hopper = new CCHGraphHopper();
         hopper.setGraphHopperLocation(location)

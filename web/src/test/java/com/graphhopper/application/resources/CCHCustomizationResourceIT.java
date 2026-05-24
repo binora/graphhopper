@@ -84,5 +84,27 @@ public class CCHCustomizationResourceIT {
 
         JsonNode updatedStatus = clientTarget(app, "/cch/customize").request().get(JsonNode.class);
         assertEquals(2, updatedStatus.get(0).get("metric_generation").asInt());
+
+        JsonNode trafficStatus = clientTarget(app, "/cch/traffic/status").request().get(JsonNode.class);
+        assertEquals("empty", trafficStatus.get("active_snapshot").get("id").asText());
+
+        JsonNode snapshot = clientTarget(app, "/cch/traffic/snapshots")
+                .request()
+                .post(Entity.json("{\"id\":\"jam-1\",\"created_millis\":123,\"entries\":[{\"edge\":0,\"reverse\":false,\"delay_millis\":10}]}"),
+                        JsonNode.class);
+        assertEquals("jam-1", snapshot.get("id").asText());
+        assertEquals(1, snapshot.get("overrides").asInt());
+
+        JsonNode active = clientTarget(app, "/cch/traffic/snapshots/jam-1/activate")
+                .request()
+                .post(Entity.text(""), JsonNode.class);
+        assertEquals("jam-1", active.get("active_snapshot").get("id").asText());
+
+        JsonNode trafficCustomize = clientTarget(app, "/cch/traffic/snapshots/jam-1/activate-and-customize/" + PROFILE)
+                .request()
+                .post(Entity.text(""), JsonNode.class);
+        assertEquals("jam-1", trafficCustomize.get("active_snapshot").get("id").asText());
+        assertEquals(PROFILE, trafficCustomize.get("customization").get("profile").asText());
+        assertEquals(3, trafficCustomize.get("customization").get("metric_generation").asInt());
     }
 }
