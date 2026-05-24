@@ -135,6 +135,24 @@ snapshot metadata is persisted with the metric so reloaded virtual endpoint boun
 overlay. This is still full metric customization, not partial CCH customization; update frequency should be chosen from
 measured customization time for the target map and order.
 
+## Live-Traffic Performance Checks
+
+Before using traffic snapshots for production updates, measure full CCH customization cost for the target graph and node
+order. The module includes a deterministic smoke benchmark that compares degree order, coordinate nested-dissection
+order, and imported-order plumbing:
+
+```bash
+mvn -pl graphhopper-cch -am -DskipITs \
+  -Dtest=CCHLiveTrafficPerformanceBenchmarkTest \
+  -DfailIfNoTests=false test
+```
+
+The benchmark records topology build time, topology statistics, base customization time, traffic recustomization time,
+query time, and visited nodes. It is intentionally not a JMH microbenchmark; it is a stable regression and decision aid.
+For a real deployment, run the same measurement shape on the target map with the intended order provider. If full
+traffic recustomization fits the desired update interval, the current snapshot workflow is sufficient. If it does not,
+the next optimization boundary is partial customization or affected-region customization.
+
 ## Support Matrix
 
 | Capability | `CCHGraphHopper` adapter | Module core |
