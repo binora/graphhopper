@@ -149,9 +149,20 @@ mvn -pl graphhopper-cch -am -DskipITs \
 
 The benchmark records topology build time, topology statistics, base customization time, traffic recustomization time,
 query time, and visited nodes. It is intentionally not a JMH microbenchmark; it is a stable regression and decision aid.
-For a real deployment, run the same measurement shape on the target map with the intended order provider. If full
-traffic recustomization fits the desired update interval, the current snapshot workflow is sufficient. If it does not,
-the next optimization boundary is partial customization or affected-region customization.
+
+There is also an adapter-shaped fixture-map benchmark that imports a generated OSM grid through GraphHopper first and
+then derives the CCH support graph from `BaseGraph`, using the same metric source boundary as runtime CCH:
+
+```bash
+mvn -pl graphhopper-cch -am -DskipITs \
+  -Dtest=CCHFixtureMapPerformanceBenchmarkTest \
+  -DfailIfNoTests=false test
+```
+
+Use the synthetic benchmark to catch algorithm regressions and the fixture-map benchmark to catch GraphHopper adapter
+regressions. For a real deployment, run the same measurement shape on the target regional extract with the intended
+order provider. If full traffic recustomization fits the desired update interval, the current snapshot workflow is
+sufficient. If it does not, the next optimization boundary is partial customization or affected-region customization.
 
 ## Support Matrix
 
